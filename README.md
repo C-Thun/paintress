@@ -2,7 +2,7 @@
 
 面向 AI agent 的设计稿操作层。用 MCP 工具读写结构化的 `.pen` 设计稿，渲染为 HTML，在浏览器里查看与标记。
 
-早期开发中，尚无可用版本。
+早期开发中，尚未发布。
 
 ## 能力
 
@@ -10,6 +10,90 @@
 - **渲染**：设计稿 → HTML/CSS，由浏览器排版，输出可直接使用的页面
 - **查看**：本地服务，文件变更自动刷新
 - **标记**：点击节点生成短号，便于在对话中指代
+
+## 安装
+
+要求 Node.js ≥ 22。
+
+```bash
+npm install -g paintress     # 全局安装，命令名为 paintress
+npx paintress --help         # 或临时运行
+```
+
+> 包名待最终确定：若发布在 `@aliciai` 作用域下，把下文命令里的 `paintress` 换成 `@aliciai/paintress`，CLI 命令名不变。
+
+## 接入 MCP 客户端
+
+服务端就是一条 stdio 命令：`paintress mcp`。各客户端的差异只在配置文件位置与顶层字段名。
+
+### Claude Desktop
+
+`claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "paintress": { "command": "npx", "args": ["-y", "paintress", "mcp"] }
+  }
+}
+```
+
+### Cursor
+
+`~/.cursor/mcp.json`（全局）或 `.cursor/mcp.json`（项目，可提交）：
+
+```json
+{
+  "mcpServers": {
+    "paintress": { "command": "npx", "args": ["-y", "paintress", "mcp"] }
+  }
+}
+```
+
+### VS Code
+
+`.vscode/mcp.json`（顶层键是 `servers`，不是 `mcpServers`）：
+
+```json
+{
+  "servers": {
+    "paintress": { "type": "stdio", "command": "npx", "args": ["-y", "paintress", "mcp"] }
+  }
+}
+```
+
+### Codex
+
+`~/.codex/config.toml`：
+
+```toml
+[mcp_servers.paintress]
+command = "npx"
+args = ["-y", "paintress", "mcp"]
+```
+
+### pi
+
+`~/.pi/agent/mcp.json`（用户级）或 `.pi/mcp.json`（项目级）：
+
+```json
+{
+  "mcpServers": {
+    "paintress": { "command": "paintress", "args": ["mcp"] }
+  }
+}
+```
+
+若 paintress 装在 `~/.pi/agent/npm` 里（该目录的 `.bin` 不在 PATH），`command` 写成 `~/.pi/agent/npm/node_modules/.bin/paintress`。
+
+## 查看设计稿
+
+```bash
+paintress web --idle 3600000   # 起本地查看器（默认 http://localhost:3316）
+paintress watch demo ./demo    # 注册一个项目目录
+```
+
+浏览器打开 `http://localhost:3316/?project=demo&file=hello.ptr`：滚轮以光标为锚点缩放，空格 / 中键 / 空白处拖拽平移，`Ctrl/Cmd+0` 回 100%，`Shift+1` 适应窗口；多画板文件会显示画板条。
 
 ## 原则
 
