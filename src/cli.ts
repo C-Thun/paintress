@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { TOOLS, type ToolOutput } from './mcp/tools.js';
 import { runStdioServer } from './mcp/server.js';
+import { startDaemon } from './web/daemon.js';
+import { isDaemonRunning, sendRequest, attachPersistent } from './web/client.js';
 
 /**
  * paintress CLI —— 与 MCP 共享同一套工具 handler。
@@ -17,6 +19,13 @@ import { runStdioServer } from './mcp/server.js';
  *   paintress render <file> <out.html>
  *   paintress shot <file> <out.png> [--scale n]
  *   paintress validate <file>
+ *   paintress web [--port n] [--idle ms] [--daemon]   启动唯一 web 实例
+ *   paintress ping                                    检查 web 是否在运行
+ *   paintress status                                  查看已注册项目
+ *   paintress watch <name> <dir>                      注册要跟踪的目录
+ *   paintress unwatch <name>                          移除项目
+ *   paintress attach <name>                           保持连接作为存活信号
+ *   paintress stop                                    停止 web
  */
 
 export interface ParsedCommand {
@@ -25,7 +34,7 @@ export interface ParsedCommand {
   flags: Record<string, string | boolean>;
 }
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale']);
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon']);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
 export function parseArgv(argv: string[]): ParsedCommand | null {
@@ -85,7 +94,7 @@ async function call(tool: string, args: Record<string, unknown>): Promise<ToolOu
 export async function main(argv: string[]): Promise<number> {
   const parsed = parseArgv(argv);
   if (!parsed) {
-    console.error('用法：paintress <mcp|info|query|get|update|insert|delete|move|batch|validate> ...');
+    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|info|query|get|update|insert|delete|move|batch|render|shot|validate> ...');
     return 2;
   }
   const { cmd, positionals, flags } = parsed;
@@ -96,6 +105,93 @@ export async function main(argv: string[]): Promise<number> {
       await runStdioServer();
       return 0;
     }
+
+    // ---- web 控制面（不需要 <file>）----
+    if (cmd === 'ping') {
+      if (!isDaemonRunning()) {
+        console.log(JSON.stringify({ ok: false, running: false, hint: '未运行：paintress web --daemon' }));
+        return 1;
+      }
+      const res = await sendRequest({ kind: 'ping' });
+      console.log(JSON.stringify(res, null, 2));
+      return res.ok ? 0 : 1;
+    }
+    if (cmd === 'status') {
+      if (!isDaemonRunning()) {
+        console.log(JSON.stringify({ ok: false, running: false }));
+        return 1;
+      }
+      console.log(JSON.stringify(await sendRequest({ kind: 'status' }), null, 2));
+      return 0;
+    }
+    if (cmd === 'watch') {
+      if (!file || !a1) throw new Error('用法：paintress watch <name> <dir>');
+      console.log(JSON.stringify(await sendRequest({ kind: 'watch', project: file, dir: a1 }, 8000), null, 2));
+      return 0;
+    }
+    if (cmd === 'unwatch') {
+      if (!file) throw new Error('用法：paintress unwatch <name>');
+      console.log(JSON.stringify(await sendRequest({ kind: 'unwatch', project: file }), null, 2));
+      return 0;
+    }
+    if (cmd === 'stop') {
+      if (!isDaemonRunning()) {
+        console.log(JSON.stringify({ ok: true, shutdown: true, already: true }));
+        return 0;
+      }
+      console.log(JSON.stringify(await sendRequest({ kind: 'shutdown' }), null, 2));
+      return 0;
+    }
+    if (cmd === 'attach') {
+      if (!file) throw new Error('用法：paintress attach <name>');
+      const handle = await attachPersistent(file);
+      console.log(JSON.stringify({ ok: true, attached: true, project: file, note: '连接保持中，断开即视为退出' }));
+      // 保持前台，直到被信号终止或被 daemon 关掉
+      await new Promise<void>((resolve) => {
+        handle.onClose(() => resolve());
+        const bye = (): void => {
+          handle.close();
+          resolve();
+        };
+        process.once('SIGINT', bye);
+        process.once('SIGTERM', bye);
+      });
+      return 0;
+    }
+    if (cmd === 'web') {
+      const port = flagNum(flags, 'port');
+      const idle = flagNum(flags, 'idle');
+      if (flags['daemon'] === true) {
+        const { spawn } = await import('node:child_process');
+        const args = [process.argv[1] ?? '', 'web'];
+        if (port !== undefined) args.push('--port', String(port));
+        if (idle !== undefined) args.push('--idle', String(idle));
+        const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
+        child.unref();
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          if (isDaemonRunning()) {
+            const res = await sendRequest({ kind: 'ping' });
+            console.log(JSON.stringify({ daemon: true, launcherPid: child.pid, ...res }, null, 2));
+            return 0;
+          }
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        throw new Error('后台启动超时（5s 内未出现控制面 socket）');
+      }
+      const handle = await startDaemon({
+        ...(port !== undefined ? { port } : {}),
+        ...(idle !== undefined ? { idleTimeoutMs: idle } : {}),
+      });
+      console.log(JSON.stringify({ ok: true, pid: handle.pid, port: handle.port, http: `http://localhost:${handle.port}` }, null, 2));
+      // 不返回：server 保持打开，事件循环非空 → 进程常驻
+      await new Promise<void>((resolve) => {
+        process.once('SIGINT', () => void handle.close().then(() => resolve()));
+        process.once('SIGTERM', () => void handle.close().then(() => resolve()));
+      });
+      return 0;
+    }
+
     if (!file) throw new Error('缺少 <file> 参数');
 
     let out: ToolOutput;

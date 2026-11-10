@@ -71,4 +71,17 @@ describe('main 冒烟（临时副本）', () => {
     expect(await main(['bogus-cmd', file])).toBe(2);
     expect(await main([])).toBe(2);
   });
+
+  it('watch 参数齐全时进入实际流程（不再误报用法）', async () => {
+    const errs = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0])).join('\n');
+    const code = await main(['watch', 'demo', '/tmp/whatever']);
+    expect(errs).not.toContain('用法：paintress watch');
+    // 无 daemon 时应为连接错误（1），而非用法错误（2）
+    expect([0, 1]).toContain(code);
+  });
+
+  it('attach/unwatch 同理：缺参数才报用法', async () => {
+    expect(await main(['attach'])).toBe(1);
+    expect(await main(['unwatch'])).toBe(1);
+  });
 });

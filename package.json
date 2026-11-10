@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "chokidar": "^6.0.0",
     "lucide-static": "^1.70.0",
     "playwright-core": "^1.65.0",
     "zod": "^3.25.0"
