@@ -2,8 +2,11 @@ import { z } from 'zod';
 
 /** 规格来源：format/spec.yaml §scalars（线键名，v0.2.0） */
 
+/** 变量名形如 $accent、$gap-md（必须字母或下划线开头，避免把 $99 这类价格文本当成变量） */
+export const VARIABLE_NAME = /^\$[A-Za-z_][A-Za-z0-9_-]*$/;
+
 /** $name 变量引用 */
-export const VariableRef = z.string().regex(/^\$.+/);
+export const VariableRef = z.string().regex(VARIABLE_NAME);
 
 export const NumOrVar = z.union([z.number(), VariableRef]);
 export const Color = z.string();

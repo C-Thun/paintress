@@ -1,4 +1,4 @@
-import { DocumentSchema, KNOWN_NODE_TYPES } from '../schema/index.js';
+import { DocumentSchema, KNOWN_NODE_TYPES, VARIABLE_NAME } from '../schema/index.js';
 import { collectIds } from './id.js';
 
 /** 校验结果：errors 阻断写入，warnings 不阻断 */
@@ -68,7 +68,7 @@ export function validateDoc(input: unknown): ValidationResult {
   const varNames = new Set(doc.variables ? Object.keys(doc.variables) : []);
   const varRefs = new Set<string>();
   const scan = (obj: unknown): void => {
-    if (typeof obj === 'string' && obj.startsWith('$')) varRefs.add(obj.slice(1));
+    if (typeof obj === 'string' && VARIABLE_NAME.test(obj)) varRefs.add(obj.slice(1));
     else if (Array.isArray(obj)) obj.forEach(scan);
     else if (obj && typeof obj === 'object') Object.values(obj).forEach(scan);
   };

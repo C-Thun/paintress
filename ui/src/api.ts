@@ -83,3 +83,16 @@ export async function clearMarks(project: string): Promise<number> {
   const body = (await res.json()) as { ok: boolean; cleared: number };
   return body.cleared;
 }
+
+export interface ChangesResponse {
+  ok: boolean;
+  ids: string[];
+  at: number;
+}
+
+/** 最近一次写操作影响到的节点 id（用于变更高亮） */
+export function fetchChanges(project: string, file: string): Promise<ChangesResponse> {
+  return getJson<ChangesResponse>(
+    `/api/changes?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file)}`,
+  );
+}

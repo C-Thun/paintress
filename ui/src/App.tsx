@@ -3,6 +3,7 @@ import {
   addMark,
   clearMarks,
   eventsUrl,
+  fetchChanges,
   fetchFiles,
   fetchMarks,
   fetchProjects,
@@ -116,6 +117,8 @@ export default function App() {
     style.textContent = [
       '[data-ptr-selected]{outline:2px solid #2563eb !important;outline-offset:-2px;}',
       '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed #60a5fa !important;outline-offset:-2px;}',
+      '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #f59e0b !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
+      '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #f59e0b}50%{box-shadow:inset 0 0 0 2px #fde68a}}',
       'html{cursor:default;}',
     ].join('\n');
     doc.head.appendChild(style);
@@ -147,6 +150,24 @@ export default function App() {
     hit?.setAttribute('data-ptr-hover', '');
   }
 
+  async function applyChanges(): Promise<void> {
+    const p = activeProject();
+    const f = activeFile();
+    if (!p || !f) return;
+    try {
+      const res = await fetchChanges(p, f);
+      if (!res.ok || res.ids.length === 0) return;
+      if (Date.now() - res.at > 30_000) return; // 太旧的变更不再高亮
+      const doc = frameDoc();
+      if (!doc) return;
+      for (const id of res.ids) {
+        doc.querySelector(`[data-node-id="${cssEscape(id)}"]`)?.setAttribute('data-ptr-changed', '');
+      }
+    } catch {
+      /* 高亮尽力而为 */
+    }
+  }
+
   function bindFrame(): void {
     const doc = frameDoc();
     if (!doc) return;
@@ -154,6 +175,7 @@ export default function App() {
     doc.addEventListener('click', onFrameClick, true);
     doc.addEventListener('mousemove', onFrameMove, true);
     applyHighlight();
+    void applyChanges();
   }
 
   async function selectNode(el: HTMLElement): Promise<void> {

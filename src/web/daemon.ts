@@ -8,6 +8,7 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Registry } from './registry.js';
 import { MarksStore } from './marks.js';
+import { ChangesStore } from './changes.js';
 import { LineDecoder, encodeLine, type ClientRequest, type ServerResponse } from './protocol.js';
 import { lockPath, pidPath, safeJoin, socketPath } from './paths.js';
 import { WatchManager } from './watcher.js';
@@ -154,6 +155,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const releaseLock = acquireLock();
   const registry = new Registry();
   const marks = new MarksStore();
+  const changes = new ChangesStore();
   const watchers = new WatchManager();
   const startedAt = Date.now();
   const idleTimeoutMs = opts.idleTimeoutMs ?? 60_000;
@@ -239,6 +241,20 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
             case 'clear-marks':
               reply({ ok: true, cleared: marks.clear(req.project) });
               break;
+            case 'changes': {
+              const abs = resolve(req.path);
+              let recorded = 0;
+              for (const entry of registry.all()) {
+                const rel = relative(entry.rootReal, abs);
+                if (rel !== '' && !rel.startsWith('..') && !rel.startsWith('/')) {
+                  changes.record(entry.name, rel.split(/[\\/]/).join('/'), req.ids);
+                  recorded = req.ids.length;
+                  break;
+                }
+              }
+              reply({ ok: true, recorded });
+              break;
+            }
             case 'shutdown':
               reply({ ok: true, shutdown: true });
               void shutdown('shutdown-request');
@@ -303,6 +319,13 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           }
           entry.lastAccess = Date.now();
           sendJson(200, { ok: true, project: entry.name, depth: entry.depth, files: registry.listDesigns(entry) });
+          return;
+        }
+        if (segments[1] === 'changes') {
+          const qProject = url.searchParams.get('project') ?? '';
+          const qFile = url.searchParams.get('path') ?? '';
+          const set = changes.get(qProject, qFile);
+          sendJson(200, { ok: true, ids: set?.ids ?? [], at: set?.at ?? 0 });
           return;
         }
         if (segments[1] === 'marks') {

@@ -1,0 +1,343 @@
+{
+  "version": "2.22",
+  "fileToken": "8f3c1a52-9d4e-4b7a-9c21-3e6f5d8b1a04",
+  "variables": {
+    "accent": {
+      "type": "color",
+      "value": "#6366F1"
+    },
+    "accent-soft": {
+      "type": "color",
+      "value": "#EEF2FF"
+    },
+    "surface": {
+      "type": "color",
+      "value": "#FFFFFF"
+    },
+    "bg": {
+      "type": "color",
+      "value": "#F8FAFC"
+    },
+    "border": {
+      "type": "color",
+      "value": "#E2E8F0"
+    },
+    "ink": {
+      "type": "color",
+      "value": "#0F172A"
+    },
+    "muted": {
+      "type": "color",
+      "value": "#64748B"
+    }
+  },
+  "children": [
+    {
+      "type": "frame",
+      "id": "root",
+      "name": "Demo",
+      "x": 0,
+      "y": 0,
+      "width": 900,
+      "height": 480,
+      "layout": "vertical",
+      "gap": 20,
+      "padding": [
+        32,
+        36
+      ],
+      "fill": "$bg",
+      "children": [
+        {
+          "type": "text",
+          "id": "title",
+          "name": "Title",
+          "content": "Paintress Demo",
+          "fontSize": 28,
+          "fontWeight": "700",
+          "fill": "$ink"
+        },
+        {
+          "type": "text",
+          "id": "subtitle",
+          "name": "Subtitle",
+          "content": "点击任意元素试试：左侧会生成短号 #1 #2 #3…，然后把短号告诉 AI 就能指代它",
+          "fontSize": 13,
+          "fill": "$muted"
+        },
+        {
+          "type": "frame",
+          "id": "buttons",
+          "name": "ButtonRow",
+          "layout": "horizontal",
+          "gap": 10,
+          "width": "fill_container",
+          "height": 40,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "btn-primary",
+              "name": "PrimaryButton",
+              "reusable": true,
+              "layout": "horizontal",
+              "gap": 6,
+              "padding": [
+                9,
+                16
+              ],
+              "alignItems": "center",
+              "cornerRadius": 8,
+              "fill": "$accent",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "btn-primary-icon",
+                  "name": "Icon",
+                  "library": "lucide",
+                  "icon": "zap",
+                  "width": 15,
+                  "height": 15,
+                  "fill": "#FFFFFF"
+                },
+                {
+                  "type": "text",
+                  "id": "btn-primary-label",
+                  "name": "Label",
+                  "content": "Primary",
+                  "fontSize": 13,
+                  "fontWeight": "600",
+                  "fill": "#FFFFFF"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "btn-secondary",
+              "name": "SecondaryButton",
+              "layout": "horizontal",
+              "gap": 6,
+              "padding": [
+                9,
+                16
+              ],
+              "alignItems": "center",
+              "cornerRadius": 8,
+              "fill": "$surface",
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "btn-secondary-label",
+                  "name": "Label",
+                  "content": "Secondary",
+                  "fontSize": 13,
+                  "fontWeight": "600",
+                  "fill": "$ink"
+                }
+              ]
+            },
+            {
+              "type": "ref",
+              "id": "btn-primary-copy",
+              "name": "PrimaryCopy",
+              "ref": "btn-primary",
+              "fill": "#0EA5E9",
+              "descendants": {
+                "btn-primary-icon": {
+                  "icon": "rocket"
+                },
+                "btn-primary-label": {
+                  "content": "From a ref"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "cards",
+          "name": "CardRow",
+          "layout": "horizontal",
+          "gap": 16,
+          "width": "fill_container",
+          "children": [
+            {
+              "type": "frame",
+              "id": "card-1",
+              "name": "CardLayout",
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "cornerRadius": 12,
+              "fill": "$surface",
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "card-1-icon",
+                  "name": "Icon",
+                  "library": "lucide",
+                  "icon": "layout-dashboard",
+                  "width": 22,
+                  "height": 22,
+                  "fill": "$accent"
+                },
+                {
+                  "type": "text",
+                  "id": "card-1-title",
+                  "name": "Title",
+                  "content": "布局 ✓",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                  "fill": "$ink"
+                },
+                {
+                  "type": "text",
+                  "id": "card-1-desc",
+                  "name": "Desc",
+                  "content": "flex 方向、间距与内边距",
+                  "fontSize": 12,
+                  "fill": "$muted"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "card-2",
+              "name": "CardToken",
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "cornerRadius": 12,
+              "fill": "$surface",
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "card-2-icon",
+                  "name": "Icon",
+                  "library": "lucide",
+                  "icon": "palette",
+                  "width": 22,
+                  "height": 22,
+                  "fill": "#F59E0B"
+                },
+                {
+                  "type": "text",
+                  "id": "card-2-title",
+                  "name": "Title",
+                  "content": "变量（已改）",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                  "fill": "$ink"
+                },
+                {
+                  "type": "text",
+                  "id": "card-2-desc",
+                  "name": "Desc",
+                  "content": "$accent 等令牌在渲染时内联解析",
+                  "fontSize": 12,
+                  "fill": "$muted"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "card-3",
+              "name": "CardRef",
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 16,
+              "cornerRadius": 12,
+              "fill": "$surface",
+              "stroke": "$border",
+              "strokeWidth": 1,
+              "strokeAlignment": "inner",
+              "width": "fill_container",
+              "children": [
+                {
+                  "type": "icon",
+                  "id": "card-3-icon",
+                  "name": "Icon",
+                  "library": "lucide",
+                  "icon": "component",
+                  "width": 22,
+                  "height": 22,
+                  "fill": "#10B981"
+                },
+                {
+                  "type": "text",
+                  "id": "card-3-title",
+                  "name": "Title",
+                  "content": "组件复用",
+                  "fontSize": 15,
+                  "fontWeight": "600",
+                  "fill": "$ink"
+                },
+                {
+                  "type": "text",
+                  "id": "card-3-desc",
+                  "name": "Desc",
+                  "content": "上行最后一个按钮就是 ref 实例",
+                  "fontSize": 12,
+                  "fill": "$muted"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "footnote",
+          "name": "Footnote",
+          "layout": "horizontal",
+          "gap": 6,
+          "alignItems": "center",
+          "cornerRadius": 999,
+          "padding": [
+            5,
+            12
+          ],
+          "fill": "$accent-soft",
+          "width": "fit_content",
+          "height": 26,
+          "children": [
+            {
+              "type": "icon",
+              "id": "footnote-icon",
+              "name": "Icon",
+              "library": "lucide",
+              "icon": "mouse-pointer-click",
+              "width": 13,
+              "height": 13,
+              "fill": "$accent"
+            },
+            {
+              "type": "text",
+              "id": "footnote-text",
+              "name": "Text",
+              "content": "改完文件会自动刷新",
+              "fontSize": 12,
+              "fill": "$accent"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "x-paintress": {
+    "spec": "1",
+    "generator": "paintress/0.1.0",
+    "updated_at": "2026-11-10T14:31:15.220Z",
+    "created_at": "2026-11-10T14:29:47.706Z"
+  }
+}

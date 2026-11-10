@@ -1,4 +1,4 @@
-import type { PenDocument } from '../schema/index.js';
+import { VARIABLE_NAME, type PenDocument } from '../schema/index.js';
 
 /** 变量解析：$name → variables 表取值（themed 列表取无主题项，缺省取首项）。决策 4：渲染时内联。 */
 
@@ -45,7 +45,8 @@ export function makeVarResolver(doc: PenDocument, warnings: Warnings): VarResolv
   };
   return {
     resolve(input: string): string {
-      if (!input.startsWith('$')) return input;
+      // 只有形如 $name 的才是变量引用；普通文本（如“$5 起”）原样返回
+      if (!VARIABLE_NAME.test(input)) return input;
       const val = lookup(input.slice(1));
       if (val === undefined) {
         warnings.push(`未定义变量 ${input}，按原样输出`);
@@ -56,7 +57,7 @@ export function makeVarResolver(doc: PenDocument, warnings: Warnings): VarResolv
     resolveNum(input: unknown): number | undefined {
       if (typeof input === 'number') return input;
       if (typeof input === 'string') {
-        if (!input.startsWith('$')) {
+        if (!VARIABLE_NAME.test(input)) {
           const n = Number(input);
           return Number.isFinite(n) ? n : undefined;
         }
@@ -70,7 +71,7 @@ export function makeVarResolver(doc: PenDocument, warnings: Warnings): VarResolv
     resolveBool(input: unknown): boolean | undefined {
       if (typeof input === 'boolean') return input;
       if (typeof input === 'string') {
-        if (!input.startsWith('$')) return input === 'true';
+        if (!VARIABLE_NAME.test(input)) return input === 'true';
         const val = lookup(input.slice(1));
         if (typeof val === 'boolean') return val;
         warnings.push(`布尔变量 ${input} 解析失败，按缺省处理`);

@@ -55,15 +55,34 @@ function read<T>(path: string, fn: (ctx: ReturnType<typeof loadDoc>) => T): T {
   return fn(loaded);
 }
 
-/** 写：load → 变更 → 校验（结构错误不落盘）→ 原子保存（保持原风味） */
-function write(path: string, fn: (doc: ReturnType<typeof loadDoc>['doc']) => unknown): { ok: true; result: unknown; warnings: unknown[] } {
+/** 把「本次写操作动到的节点 id」告知 daemon，供前端做变更高亮（fire-and-forget） */
+function notifyChanges(path: string, ids: string[]): void {
+  if (ids.length === 0 || !isDaemonRunning()) return;
+  void sendRequest({ kind: 'changes', path, ids }, 2000).catch(() => {
+    /* 高亮是尽力而为，失败不影响写入结果 */
+  });
+}
+
+/**
+ * 写：load → 变更 → 校验（结构错误不落盘）→ 原子保存（保持原风味）。
+ * fn 可通过 mark() 登记受影响的节点 id，写成功后统一通知 daemon。
+ */
+function write(
+  path: string,
+  fn: (doc: ReturnType<typeof loadDoc>['doc'], mark: (ids: string[]) => void) => unknown,
+): { ok: true; result: unknown; warnings: unknown[] } {
   const loaded = loadDoc(path);
-  const result = fn(loaded.doc);
+  const touched: string[] = [];
+  const mark = (ids: string[]): void => {
+    touched.push(...ids);
+  };
+  const result = fn(loaded.doc, mark);
   const v = validateDoc(loaded.doc);
   if (!v.ok) {
     throw new Error(`变更后结构校验失败，未落盘：\n${v.errors.map((e) => `  ${e.path}: ${e.message}`).join('\n')}`);
   }
   saveDoc(path, loaded.doc, { expectedMtimeMs: loaded.mtimeMs, flavor: loaded.flavor });
+  notifyChanges(path, touched);
   return { ok: true, result, warnings: v.warnings };
 }
 
@@ -136,7 +155,13 @@ export const TOOLS: Record<string, ToolDef> = {
   paintress_update: {
     description: '浅合并更新节点属性（id 与 type 不可改）',
     inputSchema: { path: z.string(), id: z.string(), patch: z.record(z.unknown()) },
-    run: (a) => write(reqStr(a, 'path'), (doc) => u(doc, reqStr(a, 'id'), objArg(a, 'patch'))),
+    run: (a) =>
+      write(reqStr(a, 'path'), (doc, mark) => {
+        const id = reqStr(a, 'id');
+        const res = u(doc, id, objArg(a, 'patch'));
+        mark([id]);
+        return res;
+      }),
   },
 
   paintress_insert: {
@@ -147,15 +172,22 @@ export const TOOLS: Record<string, ToolDef> = {
       node: z.record(z.unknown()),
       index: z.number().int().min(0).optional(),
     },
-    run: (a) => write(reqStr(a, 'path'), (doc) => i(doc, reqStr(a, 'parent'), objArg(a, 'node'), optNum(a, 'index'))),
+    run: (a) =>
+      write(reqStr(a, 'path'), (doc, mark) => {
+        const newId = i(doc, reqStr(a, 'parent'), objArg(a, 'node'), optNum(a, 'index'));
+        mark([newId]);
+        return newId;
+      }),
   },
 
   paintress_delete: {
     description: '删除节点（含子树）',
     inputSchema: { path: z.string(), id: z.string() },
     run: (a) =>
-      write(reqStr(a, 'path'), (doc) => {
-        const node = rm(doc, reqStr(a, 'id')) as Record<string, unknown>;
+      write(reqStr(a, 'path'), (doc, mark) => {
+        const id = reqStr(a, 'id');
+        const node = rm(doc, id) as Record<string, unknown>;
+        mark([id]);
         return { deleted: { id: node['id'], name: node['name'], type: node['type'] } };
       }),
   },
@@ -164,9 +196,11 @@ export const TOOLS: Record<string, ToolDef> = {
     description: '移动/重排节点到新父（防环校验）',
     inputSchema: { path: z.string(), id: z.string(), parent: z.string(), index: z.number().int().min(0).optional() },
     run: (a) =>
-      write(reqStr(a, 'path'), (doc) => {
-        mv(doc, reqStr(a, 'id'), reqStr(a, 'parent'), optNum(a, 'index'));
-        return { moved: reqStr(a, 'id'), to: reqStr(a, 'parent') };
+      write(reqStr(a, 'path'), (doc, mark) => {
+        const id = reqStr(a, 'id');
+        mv(doc, id, reqStr(a, 'parent'), optNum(a, 'index'));
+        mark([id]);
+        return { moved: id, to: reqStr(a, 'parent') };
       }),
   },
 
@@ -174,7 +208,7 @@ export const TOOLS: Record<string, ToolDef> = {
     description: '批量原子操作：update/insert/delete/move 数组，任一步失败整体作废',
     inputSchema: { path: z.string(), ops: z.array(z.record(z.unknown())) },
     run: (a) =>
-      write(reqStr(a, 'path'), (doc) => {
+      write(reqStr(a, 'path'), (doc, mark) => {
         const raw = a['ops'];
         if (!Array.isArray(raw)) throw new Error('ops 必须是数组');
         const ops = raw.map((op, idx) => {
@@ -189,6 +223,7 @@ export const TOOLS: Record<string, ToolDef> = {
         // batch 是克隆语义（返回新文档），但四类 op 只改 children 树；回填后走统一的写路径
         const out = bt(doc, ops);
         doc.children = out.children;
+        mark(ops.flatMap((op) => (op.op === 'insert' ? [] : [op.id])));
         return { applied: ops.length };
       }),
   },

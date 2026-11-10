@@ -138,3 +138,41 @@ describe('尺寸行为字映射（内联构造）', () => {
     expect(r.html).toContain('#FF00FF');
   });
 });
+
+describe('变量识别边界（$ 前缀不能过宽）', () => {
+  it('以 $ 开头但不是变量名的普通文本：原样渲染且无警告', () => {
+    const r = renderDocument({
+      version: '2.21',
+      children: [{ type: 'text', id: 't', content: '$5 起 / $accent 等令牌说明' }],
+    });
+    expect(r.html).toContain('$5 起 / $accent 等令牌说明');
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('ctx 中的价格类文本不被当作变量', () => {
+    const r = renderDocument({
+      version: '2.21',
+      children: [{ type: 'text', id: 't2', content: '$99' }],
+    });
+    expect(r.html).toContain('$99');
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('真正的 $name 引用仍然解析', () => {
+    const r = renderDocument({
+      version: '2.21',
+      variables: { accent: { type: 'color', value: '#123456' } },
+      children: [{ type: 'rectangle', id: 'r', width: 10, height: 10, fill: '$accent' }],
+    });
+    expect(r.html).toContain('#123456');
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('未定义的 $name 仍按警告处理', () => {
+    const r = renderDocument({
+      version: '2.21',
+      children: [{ type: 'rectangle', id: 'r2', width: 10, height: 10, fill: '$nope' }],
+    });
+    expect(r.warnings.some((w) => w.includes('$nope'))).toBe(true);
+  });
+});
