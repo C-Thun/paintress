@@ -45,12 +45,20 @@
 - 剩余：嵌套层级切换（见 `FUTURE.md#阶段 4 剩余`）。
 - 证据：`.agents/implementations/2026-11-10-stage4-marks.md`。
 
-### 当前质量基线（2026-11-10 末）
+### 当前质量基线（2026-11-11 更新）
 
 - `tsc --noEmit`：root 与 ui 双端 0 错误
-- `pnpm test`：9 文件 **117 用例全绿**
-- `pnpm build`：daemon 55 kB + ui 22 kB
+- `pnpm test`：10 文件 **137 用例全绿**
+- `pnpm build`：daemon 56 kB + ui 28 kB
 - 端到端实测：点击三节点得 `#1 #2 #3`、CLI 改节点后前端精确高亮、控制台零错误
+
+### 阶段 6 — 画布交互（2026-11-11）
+
+- 渲染器顶层节点输出 `data-board*`；视口控制器（滚轮锚点缩放 0.1–4 / 空格·中键·空白拖拽平移 / fit）落地在 iframe 内，只变换 `.ptr-canvas`。
+- 画板条（≤1 画板时隐藏）+ 平滑聚焦；`Ctrl/Cmd+0` 100%、`Shift+1` fit；视口按「项目+文件」写 localStorage，刷新保持。
+- 短号聚焦改为视口居中；拖拽超过 3px 吞掉后续点击，避免误选中。
+- 顺带修复：刷新后 `?file=` 丢失（深链只剩 project）。
+- 证据：`.agents/implementations/2026-11-11-stage6-canvas.md`（含浏览器实测数字）。
 
 ### 仓库迁移到 aliciai-dev（2026-11-11）
 

@@ -3,9 +3,9 @@
 > 每条必须写清：是什么、为什么等、什么条件会把它拉回来（触发条件）。
 > 被采纳的条目移入 `specs/PLAN.md`，这里留一行指针。
 
-## 会话交接（2026-11-10 末状态）
+## 会话交接（2026-11-11 更新）
 
-**代码状态**：`0a22eed`，`tsc` 双端 0 错误，**117 测试全绿**，`pnpm build` 通过（daemon 55 kB + ui 22 kB）。
+**代码状态**：`tsc` 双端 0 错误，**137 测试全绿**（10 文件），`pnpm build` 通过（daemon 56 kB + ui 28 kB）。阶段 6 已完成，见 `FINISHED.md`。
 
 **已可用的完整链路**（新会话可直接演示）：
 
@@ -24,6 +24,7 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 3. **改了 `src/` 必须重启 daemon** 才生效（否则 `/api/*` 会是旧路由，表现为「未知 API」）。
 4. 测试里 `idle 自动退出` 用例会重启 daemon（端口变化），后续用例必须同步 `baseUrl`。
 5. iframe 的 `sandbox` 必须含 `allow-scripts`，否则父页面在 `contentDocument` 上绑的点击回调会被 Chrome 拦截并报 `Blocked script execution`。
+6. **父页面与 iframe 是两个 document，键盘事件不跨**：视口的空格平移要在两处都转发（`ViewportBinding.setSpace`），否则焦点在侧栏时按空格无效。
 
 ## 阶段 4 剩余 — 嵌套层级切换
 
@@ -51,18 +52,9 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 1. `package.json#exports["./mcp"]` 指向 `dist/mcp/server.js`，但 `tsdown.config.ts` 只打包 `src/index.ts`/`src/cli.ts`，该文件从不产出。CLI 走 bundle 不受影响；库方式 `import 'paintress/mcp'` 会失败。
 2. `files: ["dist"]` 不含 `ui/dist`，而 daemon 按 `dist/../ui/dist` 定位前端产物（`src/web/daemon.ts:48`）→ 从 npm 安装后 viewer 退化为「前端未构建」精简页。
 
-## 阶段 6 — 画布交互（多画板 + 平移缩放）
+## 阶段 6 — 画布交互
 
-**方案已定稿**：`specs/canvas-interaction.md`（现状差距、transform 而非缩放 iframe 的理由、`data-board*` 元数据契约、交互清单、边界、五步顺序）。
-
-**五步顺序**：
-1. 渲染器输出 `data-board*` 元数据（顶层节点的 x/y/w/h）
-2. 视口控制器（zoom/pan/fit），含坐标换算单测
-3. 画板条与聚焦（画板数 ≤1 时隐藏）
-4. 快捷键 + localStorage 持久化（按项目+文件）
-5. 与短号聚焦联动
-
-**触发条件**：无（operator 已明确要求，是下一个开工项）。
+已完成（2026-11-11）：摘要见 `FINISHED.md#阶段 6 — 画布交互（2026-11-11）`，实现记录 `.agents/implementations/2026-11-11-stage6-canvas.md`；方案留在 `specs/canvas-interaction.md`。
 
 ## 技术债与待评估
 
