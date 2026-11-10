@@ -1,0 +1,566 @@
+---
+# paintress 格式规格（自有表述）
+# 事实层：字段、类型、枚举、默认值。供 src/schema（Zod）派生与文档生成。
+# 事实来源：2026-11-10 对本地 schema 文本的观察 + 对真实文件的抽样比对
+# （来源记录见 specs/pen-format-licensing.md）。
+# 只记录功能性事实（字段名、类型、取值、默认值），未复制任何源文档的表述文本。
+# 字段名一律使用线键名（序列化时的 camelCase 原文），不使用本项目内部命名风格。
+# 策略：pen_profile 段冻结不修改；一切演进写在 ptr 段。
+# 决策依据：.agents/memory/ARCHITECTURE.md#D-006
+
+meta:
+  spec_version: 0.2.0
+  written: "2026-11-10"
+  layers:
+    pen_profile:
+      status: frozen
+      observed_document_version: "2.22"
+    ptr:
+      version: 1
+      status: draft
+
+# ============ 共享标量 ============
+
+scalars:
+  variable_ref:
+    type: string
+    pattern: '^$.+'
+    desc: '以 $ 前缀引用文档 variables 表中的同名变量'
+  num_or_var:
+    one_of:
+      - number
+      - variable_ref
+  color:
+    type: string
+    desc: '十六进制色值：#RGB / #RRGGBB / #RRGGBBAA；透明度只能用 AA 通道表达'
+  color_or_var:
+    one_of:
+      - color
+      - variable_ref
+  bool_or_var:
+    one_of:
+      - boolean
+      - variable_ref
+  string_or_var:
+    one_of:
+      - string
+      - variable_ref
+  sizing:
+    one_of:
+      - num_or_var
+      - sizing_behavior
+    desc: 节点尺寸；数值固定，行为字交给布局计算
+    behaviors:
+      fit_content:
+        desc: 包住子内容的尺寸；要求本节点开启 layout，无 layout 时用回退值
+      fill_container:
+        desc: 沿父容器填充；要求父节点开启 layout，不满足时用回退值
+    fallback: '行为字后可带括号回退值，如 fit_content(100)'
+  affine:
+    type: array
+    items: number
+    length: 6
+    desc: '[a,b,c,d,tx,ty] 仿射矩阵'
+
+# ============ 枚举 ============
+
+enums:
+  layout_dir:
+    - none
+    - vertical
+    - horizontal
+  main_axis:
+    - start
+    - center
+    - end
+    - space_between
+    - space_around
+  cross_axis:
+    - start
+    - center
+    - end
+  blend_mode:
+    - normal
+    - darken
+    - multiply
+    - linearBurn
+    - colorBurn
+    - light
+    - screen
+    - linearDodge
+    - colorDodge
+    - overlay
+    - softLight
+    - hardLight
+    - difference
+    - exclusion
+    - hue
+    - saturation
+    - color
+    - luminosity
+  gradient_type:
+    - linear
+    - radial
+    - angular
+  image_fit:
+    - cover
+    - contain
+    - stretch
+  fill_rule:
+    - nonzero
+    - evenodd
+  stroke_cap:
+    - butt
+    - round
+    - square
+  stroke_join:
+    - miter
+    - bevel
+    - round
+  stroke_align:
+    - inner
+    - center
+    - outer
+  text_align:
+    - left
+    - center
+    - right
+    - justify
+  text_align_v:
+    - top
+    - middle
+    - bottom
+  text_growth:
+    - auto
+    - fixed-width
+    - fixed-width-height
+  shadow_kind:
+    - inner
+    - outer
+  icon_library:
+    - lucide
+    - feather
+    - 'Material Symbols Outlined'
+    - 'Material Symbols Rounded'
+    - 'Material Symbols Sharp'
+    - phosphor
+  position_mode:
+    - auto
+    - absolute
+
+# ============ 文档（根对象） ============
+
+document:
+  fields:
+    version:
+      type: string
+      required: true
+      desc: 格式版本标识
+    fileToken:
+      type: string
+      desc: 每份文档一个 UUID
+      evidence: 'schema 文本未列出，但实测所有真实文件均存在；透传保留，不解释'
+    themes:
+      type: 'map<string, string[]>'
+      desc: '主题轴名到轴取值列表，如 device 对应 phone 与 desktop'
+    imports:
+      type: 'map<string, string>'
+      desc: '短别名到相对 URI（外部设计文档），供跨文件引用'
+    variables:
+      type: 'map<string, variable_def>'
+      desc: 设计变量表
+    children:
+      type: 'array<node>'
+      required: true
+      desc: 顶层节点，画布绝对定位
+  variable_def:
+    desc: 每个变量有 type 与 value；value 可为字面量，或按主题分派的列表
+    types:
+      - boolean
+      - color
+      - number
+      - string
+    value_form:
+      - literal
+      - themed_list
+    themed_list_item:
+      value: '字面量或变量'
+      theme: '可选的主题匹配条件'
+
+# ============ 节点公共基座（线键名） ============
+
+node_base:
+  id:
+    type: string
+    required: true
+    desc: '文档内唯一；禁止包含 / （保留给 ref 后代路径）；缺省自动生成'
+  name:
+    type: string
+    desc: 人类可读名
+  context:
+    type: string
+    desc: 附加上下文说明
+  reusable:
+    type: boolean
+    default: false
+    desc: 标记为可复用组件，可被 ref 实例化
+  theme:
+    type: 'map<string, string>'
+    desc: 本节点锁定的主题取值
+  enabled:
+    type: bool_or_var
+    default: true
+    desc: 显隐
+  opacity:
+    type: num_or_var
+    default: 1
+  flipX:
+    type: bool_or_var
+    default: false
+  flipY:
+    type: bool_or_var
+    default: false
+  layoutPosition:
+    enum_ref: position_mode
+    default: auto
+    desc: absolute 时脱离父布局，改用 x 与 y 绝对定位
+  metadata:
+    type: object
+    shape: '含必填 type 字符串，其余任意'
+    desc: 自由扩展位；ptr 扩展点见 ptr 节
+  rotation:
+    type: num_or_var
+    default: 0
+    desc: 度，绕左上角逆时针
+  x:
+    type: number
+    desc: 相对父级左上角；父开启 layout 且本节点非 absolute 时忽略
+  y:
+    type: number
+
+# ============ 样式块（线键名） ============
+
+styles:
+  fills_entry:
+    desc: 按文档顺序叠放，后画在前
+    common:
+      enabled: bool_or_var
+      blendMode:
+        enum_ref: blend_mode
+    variants:
+      solid:
+        color: color_or_var
+      gradient:
+        gradientType:
+          enum_ref: gradient_type
+        center:
+          desc: 归一化到自身包围盒，默认 0.5 与 0.5
+        size:
+          desc: '归一化宽高；linear 只用高度，radial 与 angular 为椭圆直径'
+        rotation:
+          type: num_or_var
+          default: 0
+          desc: 度，逆时针，0 指向上
+        colors:
+          type: array
+          item:
+            color: color_or_var
+            position: num_or_var
+        opacity: num_or_var
+      image:
+        url:
+          type: string
+          desc: 相对本文档的路径
+        mode:
+          enum_ref: image_fit
+          default: cover
+        transform:
+          type: affine
+          desc: 裁切用，归一化图像坐标映射到裁切框
+        opacity: num_or_var
+      shader:
+        url:
+          type: string
+          desc: 相对路径，WebGL1 fragment shader（#version 100）
+        uniforms:
+          type: 'map<string, number|boolean|string|number[]>'
+          desc: '按 shader 内 @ 注释声明的 uniform 赋值；@resolution 与 @time 自动绑定，不可手设'
+      mesh_gradient:
+        columns: number
+        rows: number
+        colors:
+          type: array
+          items: color_or_var
+          desc: 行主序，共 columns 乘 rows 个
+        points:
+          desc: '单位方内的控制点，可带贝塞尔手柄；边缘点保持默认位置'
+  stroke:
+    stroke: fills_entry
+    strokeWidth:
+      one_of:
+        - num_or_var
+        - per_side
+      per_side:
+        - top
+        - right
+        - bottom
+        - left
+      desc: 均匀或四边独立
+    strokeLinecap:
+      enum_ref: stroke_cap
+    strokeLinejoin:
+      enum_ref: stroke_join
+    strokeAlignment:
+      enum_ref: stroke_align
+  effects_entry:
+    variants:
+      blur:
+        radius: num_or_var
+      background_blur:
+        radius: num_or_var
+        desc: 模糊本节点背后的内容
+      shadow:
+        shadowType:
+          enum_ref: shadow_kind
+        offset:
+          x: num_or_var
+          y: num_or_var
+        blur: num_or_var
+        color: color_or_var
+        blendMode:
+          enum_ref: blend_mode
+      shader:
+        url: string
+        uniforms:
+          type: map
+          desc: 作用于已渲染结果的后期处理
+
+# ============ 布局块（容器节点持有，线键名） ============
+
+layout_block:
+  layout:
+    enum_ref: layout_dir
+    default: horizontal
+    desc: none 时子节点用 x 与 y 绝对定位
+  gap:
+    type: num_or_var
+    default: 0
+    desc: 主轴子节点间距
+  padding:
+    one_of:
+      - num_or_var
+      - pair
+      - quad
+    pair: '[纵向, 横向]'
+    quad: '[上, 右, 下, 左]'
+    desc: 内边距的三种写法
+  justifyContent:
+    enum_ref: main_axis
+    default: start
+  alignItems:
+    enum_ref: cross_axis
+    default: start
+  layoutIncludeStroke: boolean
+
+# ============ 节点类型（线键名） ============
+
+nodes:
+  frame:
+    desc: 容器；层级与布局的载体
+    base:
+      - node_base
+      - layout_block
+    fields:
+      clip:
+        type: bool_or_var
+        default: false
+        desc: 裁掉溢出内容
+      placeholder: boolean
+      slot:
+        one_of:
+          - false
+          - 'string[]'
+        desc: 组件槽位；数组内为推荐的子组件 id
+      cornerRadius:
+        one_of:
+          - num_or_var
+          - quad
+        note: '四元组角顺序来源未说明：unverified'
+  group:
+    desc: 纯分组，无样式；仅组织层级
+    base:
+      - node_base
+    fields:
+      children:
+        type: 'array<node>'
+  rectangle:
+    desc: 矩形
+    base:
+      - node_base
+    fields:
+      cornerRadius:
+        one_of:
+          - num_or_var
+          - quad
+        note: '四元组角顺序来源未说明：unverified'
+  ellipse:
+    desc: 椭圆、圆弧或圆环，由包围盒定义
+    base:
+      - node_base
+    fields:
+      innerRadius:
+        type: num_or_var
+        default: 0
+        desc: '0 实心 1 空心，内外半径比'
+      startAngle:
+        type: num_or_var
+        default: 0
+        desc: 度，从正右逆时针
+      sweepAngle:
+        type: num_or_var
+        default: 360
+        desc: 正逆负顺，范围 -360 到 360
+  polygon:
+    desc: 正多边形
+    base:
+      - node_base
+    fields:
+      polygonCount: num_or_var
+      cornerRadius: num_or_var
+  path:
+    desc: SVG 路径
+    base:
+      - node_base
+    fields:
+      geometry:
+        type: string
+        desc: SVG path 语法
+      fillRule:
+        enum_ref: fill_rule
+        default: nonzero
+      viewBox:
+        type: quad4
+        desc: 'SVG 坐标空间 x y w h 到节点盒的映射；缺省取几何紧包围盒'
+  text:
+    desc: 文本
+    base:
+      - node_base
+    fields:
+      content: string_or_var
+      textGrowth:
+        enum_ref: text_growth
+        note: 不设置此项时 width 与 height 不生效
+        meaning:
+          auto: 不换行随内容生长
+          fixed-width: 宽定高随
+          fixed-width-height: 宽高皆定可溢出
+      fontFamily: string_or_var
+      fontSize: num_or_var
+      fontWeight: string_or_var
+      letterSpacing: num_or_var
+      fontStyle: string_or_var
+      underline: bool_or_var
+      lineHeight:
+        type: num_or_var
+        desc: fontSize 的倍数；缺省用字体内置值
+      textAlign:
+        enum_ref: text_align
+      textAlignVertical:
+        enum_ref: text_align_v
+      strikethrough: bool_or_var
+      href: string
+  note:
+    desc: 画布便签，非 UI 元素
+    base:
+      - node_base
+    fields:
+      content: string_or_var
+      color:
+        type: color_or_var
+        default: '#FEE484'
+  icon:
+    desc: 图标库字形，等比缩放到宽高盒内
+    base:
+      - node_base
+    fields:
+      library:
+        enum_ref: icon_library
+      icon: string_or_var
+      weight:
+        type: num_or_var
+        desc: 100 到 700，仅支持的库有效
+  script:
+    desc: 由 JavaScript 生成子树的动态节点；ptr v1 暂不实现渲染，保留解析
+    base:
+      - node_base
+    fields:
+      scriptUri:
+        type: string
+        desc: 相对本文档的 JS 文件
+      inputs:
+        type: 'map<string, string|number|boolean|variable_ref>'
+      clip:
+        type: bool_or_var
+        default: false
+  browser:
+    desc: 画布上嵌入的实时网页；ptr v1 渲染为占位框，保留解析
+    base:
+      - node_base
+    fields:
+      url: string
+      deviceId:
+        type: string
+        desc: 设备模拟预设 id；缺省响应式
+      zoom:
+        type: number
+        default: 1
+      scrollX: number
+      scrollY: number
+      cornerRadius:
+        one_of:
+          - num_or_var
+          - quad
+  ref:
+    desc: 组件实例；引用 reusable 节点并覆写
+    base:
+      - node_base
+    fields:
+      ref:
+        type: string
+        required: true
+        desc: 被引用组件的 id
+      descendants:
+        type: 'map<id_path, override>'
+        desc: 'id_path 为实例内后代 id；嵌套实例用 / 连接，如 ok-button/label'
+        override_semantics:
+          no_type_key: 浅合并，把列出的属性合到该后代上
+          with_type_key: 整体替换，该后代被完整新子树替换
+      extra_props:
+        desc: ref 上直接出现的其他属性，作为对组件根的覆写
+
+# ============ ptr 扩展（v1） ============
+
+ptr:
+  document_extensions:
+    x_paintress:
+      key: x-paintress
+      desc: 文档级扩展位；pen_profile 读取器会忽略未知顶层键
+      shape:
+        spec:
+          type: string
+          required: true
+          desc: ptr 规格版本，如 "1"
+        generator: string
+        created_at: string
+        updated_at: string
+      writer_rule: ptr 写入器必须输出 spec 字段
+  node_extensions:
+    metadata_reserved:
+      desc: 'metadata.type 以 paintress. 为前缀的命名空间保留给本工具链'
+  compat_rules:
+    - 'pen 读取器（冻结）按 pen_profile 解析；忽略 x-paintress；未知节点类型原样保留不丢弃'
+    - 'ptr 读取器等于 pen_profile 加 ptr 扩展；按 x-paintress.spec 判断版本'
+    - '向后兼容义务只在 ptr 各版本之间成立；pen 未来版本的变更不自动跟随'
+  known_gaps:
+    - 'imports 引用的外部组件，其 id 引用语法在来源文本中未给出实例，标 TBD，待实测补充'
+    - 'corner_radius 四元组的角顺序来源未说明，标 unverified'
