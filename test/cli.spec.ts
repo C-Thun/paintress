@@ -1,0 +1,74 @@
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { parseArgv, main } from '../src/cli.js';
+
+describe('parseArgv', () => {
+  it('子命令 + 位置参数', () => {
+    expect(parseArgv(['get', 'a.pen', 'title'])).toEqual({
+      cmd: 'get',
+      positionals: ['a.pen', 'title'],
+      flags: {},
+    });
+  });
+
+  it('字符串标志吃掉下一个 token', () => {
+    expect(parseArgv(['query', 'a.pen', '--type', 'text'])?.flags).toEqual({ type: 'text' });
+  });
+
+  it('布尔标志不吃 token', () => {
+    expect(parseArgv(['query', 'a.pen', '--reusable', 'x'])?.positionals).toEqual(['a.pen', 'x']);
+  });
+
+  it('未知标志返回 null', () => {
+    expect(parseArgv(['query', 'a.pen', '--bogus'])).toBeNull();
+  });
+
+  it('空参数返回 null', () => {
+    expect(parseArgv([])).toBeNull();
+  });
+});
+
+describe('main 冒烟（临时副本）', () => {
+  let tmp: string;
+  let file: string;
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'paintress-cli-'));
+    file = join(tmp, 'w.pen');
+    copyFileSync(join(import.meta.dirname, 'fixtures/basic.pen'), file);
+    log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterAll(() => {
+    log.mockRestore();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('get 输出节点 JSON，退出码 0', async () => {
+    const code = await main(['get', file, 'title']);
+    expect(code).toBe(0);
+    const printed = log.mock.calls.at(-1)?.[0] as string;
+    const node = JSON.parse(printed) as { node: { id: string; content: string } };
+    expect(node['node']).toMatchObject({ id: 'title', content: 'Paintress' });
+  });
+
+  it('update 落盘，get 复读一致', async () => {
+    expect(await main(['update', file, 'title', '{"content":"CLI 改的"}'])).toBe(0);
+    expect(await main(['get', file, 'title'])).toBe(0);
+    const printed = log.mock.calls.at(-1)?.[0] as string;
+    expect(JSON.parse(printed)['node']).toMatchObject({ content: 'CLI 改的' });
+    // 磁盘上真的变了
+    const onDisk = JSON.parse(readFileSync(file, 'utf8')) as { children: { children: { id: string; content: string }[] }[] };
+    const title = onDisk.children[0]?.children.find((c) => c.id === 'title');
+    expect(title?.content).toBe('CLI 改的');
+  });
+
+  it('错误路径：退出码 1', async () => {
+    expect(await main(['get', file, '没有这个'])).toBe(1);
+    expect(await main(['bogus-cmd', file])).toBe(2);
+    expect(await main([])).toBe(2);
+  });
+});

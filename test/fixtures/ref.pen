@@ -1,0 +1,33 @@
+{
+  "version": "2.21",
+  "children": [
+    {
+      "type": "frame",
+      "id": "btn",
+      "name": "RoundButton",
+      "reusable": true,
+      "cornerRadius": 9999,
+      "padding": [8, 16],
+      "fill": "#3B82F6",
+      "children": [
+        {
+          "type": "text",
+          "id": "label",
+          "name": "Label",
+          "content": "Submit",
+          "fill": "#FFFFFF"
+        }
+      ]
+    },
+    {
+      "type": "ref",
+      "id": "btn2",
+      "name": "DangerButton",
+      "ref": "btn",
+      "fill": "#EF4444",
+      "descendants": {
+        "label": { "content": "Delete", "fill": "#FFF7F7" }
+      }
+    }
+  ]
+}

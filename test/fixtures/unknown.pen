@@ -1,0 +1,27 @@
+{
+  "version": "2.21",
+  "children": [
+    {
+      "type": "frame",
+      "id": "host",
+      "name": "Host",
+      "children": [
+        {
+          "type": "hologram",
+          "id": "holo",
+          "name": "Holo",
+          "intensity": 7,
+          "children": [
+            { "type": "text", "id": "inner", "content": "x" }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "ghosty",
+          "content": "boo",
+          "fill": "$ghost"
+        }
+      ]
+    }
+  ]
+}

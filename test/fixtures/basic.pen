@@ -1,0 +1,65 @@
+{
+  "version": "2.21",
+  "fileToken": "11111111-2222-3333-4444-555555555555",
+  "variables": {
+    "accent": { "type": "color", "value": "#6BA3FF" },
+    "gap-md": { "type": "number", "value": 16 }
+  },
+  "children": [
+    {
+      "type": "frame",
+      "id": "rootF",
+      "name": "App",
+      "x": 0,
+      "y": 0,
+      "width": 800,
+      "height": 600,
+      "layout": "vertical",
+      "gap": 12,
+      "padding": [16, 24],
+      "fill": "#FFFFFF",
+      "children": [
+        {
+          "type": "text",
+          "id": "title",
+          "name": "Title",
+          "content": "Paintress",
+          "fontSize": 30,
+          "fontWeight": "600",
+          "fill": "$accent"
+        },
+        {
+          "type": "rectangle",
+          "id": "card",
+          "name": "Card",
+          "width": 320,
+          "height": 120,
+          "cornerRadius": [8, 8, 12, 12],
+          "fill": "#F1F5F9",
+          "stroke": "#CBD5E1",
+          "strokeWidth": 1,
+          "strokeAlignment": "inner"
+        },
+        {
+          "type": "icon",
+          "id": "star",
+          "name": "Star",
+          "library": "lucide",
+          "icon": "star",
+          "width": 24,
+          "height": 24,
+          "fill": "$accent"
+        },
+        {
+          "type": "note",
+          "id": "memo",
+          "content": "检查布局",
+          "x": 640,
+          "y": 0,
+          "width": 140,
+          "height": 80
+        }
+      ]
+    }
+  ]
+}
