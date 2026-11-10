@@ -1,10 +1,20 @@
 #!/usr/bin/env node
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { TOOLS, type ToolOutput } from './mcp/tools.js';
 import { runStdioServer } from './mcp/server.js';
 import { startDaemon } from './web/daemon.js';
 import { isDaemonRunning, sendRequest, attachPersistent } from './web/client.js';
+import {
+  CLIENTS,
+  findClient,
+  jsonSnippet,
+  resolveLaunchCommand,
+  tomlSnippet,
+  type LaunchCommand,
+} from './integrations/clients.js';
+import { applyPlan, planJsonMerge, readConfig } from './integrations/install.js';
 
 /**
  * paintress CLI —— 与 MCP 共享同一套工具 handler。
@@ -28,6 +38,9 @@ import { isDaemonRunning, sendRequest, attachPersistent } from './web/client.js'
  *   paintress unwatch <name>                          移除项目
  *   paintress attach <name>                           保持连接作为存活信号
  *   paintress stop                                    停止 web
+ *   paintress mcp-config <client>                     打印某客户端的 MCP 配置片段
+ *   paintress install [client...] [--dry-run]         把 paintress 写进各客户端配置
+ *   paintress doctor                                  检查各客户端配置状态
  */
 
 export interface ParsedCommand {
@@ -36,7 +49,7 @@ export interface ParsedCommand {
   flags: Record<string, string | boolean>;
 }
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon']);
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run']);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
 export function parseArgv(argv: string[]): ParsedCommand | null {
@@ -63,6 +76,17 @@ export function parseArgv(argv: string[]): ParsedCommand | null {
     }
   }
   return { cmd, positionals, flags };
+}
+
+/** 写进客户端配置的启动命令：全局安装用裸命令，否则回退绝对路径 */
+function currentLaunchCommand(): LaunchCommand {
+  return resolveLaunchCommand({
+    scriptPath: process.argv[1] ?? fileURLToPath(import.meta.url),
+    pathEnv: process.env['PATH'],
+    platform: process.platform,
+    exists: (p) => existsSync(p),
+    realpath: (p) => realpathSync(p),
+  });
 }
 
 function flagStr(f: Record<string, string | boolean>, key: string): string | undefined {
@@ -149,6 +173,51 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       console.log(JSON.stringify(await sendRequest({ kind: 'shutdown' }), null, 2));
+      return 0;
+    }
+    // ---- 多客户端接入（不需要 <file>）----
+    if (cmd === 'mcp-config') {
+      const id = file ?? 'claude';
+      const spec = findClient(id);
+      if (spec === undefined) throw new Error(`未知客户端：${id}（可选：${CLIENTS.map((c) => c.id).join(' / ')}）`);
+      const launch = currentLaunchCommand();
+      console.log(spec.format === 'toml' ? tomlSnippet(launch) : jsonSnippet(spec, launch));
+      return 0;
+    }
+    if (cmd === 'install' || cmd === 'doctor') {
+      const home = homedir();
+      const launch = currentLaunchCommand();
+      const ids = positionals.length > 0 ? positionals : CLIENTS.map((c) => c.id);
+      const unknown = ids.filter((id) => findClient(id) === undefined);
+      if (unknown.length > 0) {
+        throw new Error(`未知客户端：${unknown.join(', ')}（可选：${CLIENTS.map((c) => c.id).join(' / ')}）`);
+      }
+      const dryRun = cmd === 'doctor' || flags['dry-run'] === true;
+      const results: Record<string, unknown>[] = [];
+      for (const id of ids) {
+        const spec = findClient(id);
+        if (spec === undefined) continue;
+        const path = spec.configPath(home, process.platform, process.env);
+        const existing = readConfig(path);
+        const plan = planJsonMerge(spec, path, existing, launch);
+        if (cmd === 'doctor') {
+          results.push({ client: spec.id, label: spec.label, path, exists: existing !== null, status: plan.status, detail: plan.detail });
+          continue;
+        }
+        if (plan.status === 'invalid' || plan.next === null) {
+          results.push({
+            client: spec.id,
+            path,
+            status: plan.status,
+            detail: plan.detail,
+            ...(spec.format === 'toml' ? { snippet: tomlSnippet(launch) } : {}),
+          });
+          continue;
+        }
+        const backup = plan.status === 'noop' ? null : applyPlan(path, plan.next, dryRun).backup;
+        results.push({ client: spec.id, path, status: plan.status, detail: plan.detail, backup, dryRun });
+      }
+      console.log(JSON.stringify({ ok: true, launch, results }, null, 2));
       return 0;
     }
     if (cmd === 'attach') {

@@ -26,6 +26,26 @@ npx paintress --help         # 或临时运行
 
 服务端就是一条 stdio 命令：`paintress mcp`。各客户端的差异只在配置文件位置与顶层字段名。
 
+### 自动写入（推荐）
+
+```bash
+paintress doctor                 # 先看各客户端是否已安装、配置是否已就位
+paintress install --dry-run      # 预览将要写入的内容，不动磁盘
+paintress install                # 写入所有已检测到的客户端
+paintress install pi cursor      # 只写指定客户端
+```
+
+写入规则：只合并 `mcpServers.paintress`（VS Code 为 `servers.paintress`）这一条，其他键与他人条目原样保留；改动前会生成 `*.bak-<时间戳>` 备份；已有的 Codex TOML 只追加不重写。
+
+单个客户端也可以只要片段：
+
+```bash
+paintress mcp-config pi          # 输出 JSON 片段
+paintress mcp-config codex       # 输出 TOML 片段
+```
+
+下面是手工配置时的完整写法。
+
 ### Claude Desktop
 
 `claude_desktop_config.json`：

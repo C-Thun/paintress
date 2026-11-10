@@ -72,3 +72,11 @@
 - `Alt`+点击选上一层；`Alt`+滚轮上/下一级（普通滚轮已是缩放，层级导航让给 Alt；裁决理由记录在实现记录里）。
 - 顺带修复：焦点类选择（点标记 / 层级切换）面包屑不同步，`chainOf()` 成为唯一来源。
 - 证据：`.agents/implementations/2026-11-11-stage4-nesting.md`。
+
+### 阶段 5 前哨 — 发布打包与多客户端接入（2026-11-11）
+
+- 发布产物修整：`exports["./mcp"]` 真实产出、`ui/dist` 入包、`prepack` 跑 `verify:pkg` 自检；tarball 51.4 kB / 11 files。
+- 修掉 bin 经 npm 符号链接执行时静默退出（入口判定改 realpath 比对）。
+- 新增 `paintress install` / `doctor` / `mcp-config`：五家客户端（Claude Desktop / Cursor / VS Code / Codex / pi）幂等写入，改动前备份，保留他人条目。
+- dts 复测仍失败（`NodeSchema` TS7056），0.1.0 不发类型产物。
+- 证据：`.agents/implementations/2026-11-11-stage5-publish-prep.md`。

@@ -46,9 +46,15 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 
 **已就绪的前置**：GitHub org `aliciai-dev`（display name `Aliciai`）与 npm scope `@aliciai` 均已由 operator 持有，见 `ARCHITECTURE.md#D-005`。
 
-**已知发布阻塞项**（2026-11-11 全新 clone 实测）：
-1. `package.json#exports["./mcp"]` 指向 `dist/mcp/server.js`，但 `tsdown.config.ts` 只打包 `src/index.ts`/`src/cli.ts`，该文件从不产出。CLI 走 bundle 不受影响；库方式 `import 'paintress/mcp'` 会失败。
-2. `files: ["dist"]` 不含 `ui/dist`，而 daemon 按 `dist/../ui/dist` 定位前端产物（`src/web/daemon.ts:48`）→ 从 npm 安装后 viewer 退化为「前端未构建」精简页。
+**原发布阻塞项 → 已解决**（2026-11-11，记录见 `.agents/implementations/2026-11-11-stage5-publish-prep.md`）：
+1. ~~`exports["./mcp"]` 指向不产出的文件~~ → tsdown 增加 `src/mcp/server.ts` 入口。
+2. ~~`files` 缺 `ui/dist`~~ → 已加入；`prepack` 额外跑 `verify:pkg` 自检。
+3. ~~bin 经符号链接执行时静默退出~~ → 入口判定改 `realpath` 比对。
+
+**仍待决策/未完成**：
+- 包名：优先试 unscoped `paintress`（相似度过滤可能 403），失败回退 `@aliciai/paintress`。
+- `dts` 仍失败（`NodeSchema` TS7056），0.1.0 不发类型产物。
+- 可选：`server.json` 发布到 MCP Registry；pi 的 `~/` 路径写法需真会话验证。
 
 ## 阶段 6 — 画布交互
 
