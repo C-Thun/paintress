@@ -176,6 +176,16 @@ export default function App() {
     doc.querySelector(`[data-node-id="${cssEscape(id)}"]`)?.setAttribute('data-ptr-selected', '');
   }
 
+  /// 上一层：最近的带 data-node-id 的祖先
+  function parentNodeElement(el: Element): HTMLElement | null {
+    return (el.parentElement?.closest('[data-node-id]') as HTMLElement | null) ?? null;
+  }
+
+  /// 下一层：第一个带 data-node-id 的子元素
+  function firstChildNodeElement(el: Element): HTMLElement | null {
+    return el.querySelector<HTMLElement>(':scope > [data-node-id]');
+  }
+
   function onFrameClick(ev: MouseEvent): void {
     // 拖拽画布结束后紧跟的 click 不能当成选中
     if (viewportCtl?.consumeDragClick() === true) {
@@ -188,7 +198,28 @@ export default function App() {
     if (!hit) return;
     ev.preventDefault();
     ev.stopPropagation();
-    void selectNode(hit as HTMLElement);
+    // Alt+点击：选上一层（已在顶层时选自己）
+    const chosen = ev.altKey ? (parentNodeElement(hit) ?? (hit as HTMLElement)) : (hit as HTMLElement);
+    void selectNode(chosen);
+  }
+
+  /// Alt+滚轮：在祖先链上上/下一级（纯导航，不产生标记）
+  function stepLevel(direction: 1 | -1, point: { x: number; y: number }): void {
+    const doc = frameDoc();
+    if (!doc) return;
+    const currentId = selectedId();
+    const current =
+      currentId === null ? null : doc.querySelector<HTMLElement>(`[data-node-id="${cssEscape(currentId)}"]`);
+    if (current === null) {
+      // 未选中：先选光标下的最深节点
+      const hit = doc.elementFromPoint(point.x, point.y)?.closest('[data-node-id]') as HTMLElement | null;
+      const id = hit?.dataset['nodeId'];
+      if (id !== undefined) focusNodeById(id);
+      return;
+    }
+    const next = direction === 1 ? parentNodeElement(current) : firstChildNodeElement(current);
+    const nextId = next?.dataset['nodeId'];
+    if (nextId !== undefined) focusNodeById(nextId);
   }
 
   function onFrameMove(ev: MouseEvent): void {
@@ -264,6 +295,7 @@ export default function App() {
         setZoom(vp.z);
         persistViewport(vp);
       },
+      onLevelStep: stepLevel,
     });
     setBoards(readBoards());
     setActiveBoard(null);
@@ -295,11 +327,8 @@ export default function App() {
     if (b) viewportCtl.focusBox({ x: b.x, y: b.y, w: b.w, h: b.h });
   }
 
-  async function selectNode(el: HTMLElement): Promise<void> {
-    const nodeId = el.dataset['nodeId'] ?? '';
-    if (nodeId === '') return;
-
-    // 祖先链（面包屑）：从命中元素逐层向上
+  /// 祖先链（面包屑）：从命中元素逐层向上
+  function chainOf(el: Element): Crumb[] {
     const chain: Crumb[] = [];
     let cur: Element | null = el;
     while (cur) {
@@ -309,6 +338,14 @@ export default function App() {
       chain.unshift({ id: h.dataset['nodeId'] ?? '', type: h.dataset['nodeType'] ?? '?', name: h.dataset['nodeName'] });
       cur = nodeEl.parentElement;
     }
+    return chain;
+  }
+
+  async function selectNode(el: HTMLElement): Promise<void> {
+    const nodeId = el.dataset['nodeId'] ?? '';
+    if (nodeId === '') return;
+
+    const chain = chainOf(el);
 
     setSelectedId(nodeId);
     setCrumbs(chain);
@@ -336,7 +373,12 @@ export default function App() {
     applyHighlight();
     const doc = frameDoc();
     const el = doc?.querySelector<HTMLElement>(`[data-node-id="${cssEscape(id)}"]`);
-    if (!el || !doc) return;
+    if (!el || !doc) {
+      setCrumbs([]);
+      return;
+    }
+    // 面包屑跟着选中走（点击标记 / Alt+滚轮切换层级都走这里）
+    setCrumbs(chainOf(el));
     const canvas = doc.querySelector<HTMLElement>('.ptr-canvas');
     if (!canvas || !viewportCtl) {
       el.scrollIntoView({ block: 'center' });

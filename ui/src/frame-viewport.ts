@@ -44,9 +44,14 @@ export interface BindOptions {
   doc: Document;
   /** 视口变化时回调（持久化用） */
   onChange?: (vp: Viewport) => void;
+  /**
+   * Alt+滚轮切换嵌套层级（阶段 4 剩余）：普通滚轮已被缩放占用，层级导航让给 Alt。
+   * direction: 1 = 上一层，-1 = 下一层。
+   */
+  onLevelStep?: (direction: 1 | -1, point: { x: number; y: number }) => void;
 }
 
-export function bindViewport({ doc, onChange }: BindOptions): ViewportBinding | null {
+export function bindViewport({ doc, onChange, onLevelStep }: BindOptions): ViewportBinding | null {
   const found = doc.querySelector<HTMLElement>('.ptr-canvas');
   if (found === null) return null;
   // 显式标注为非空：闭包里不再享受控制流收窄
@@ -93,6 +98,10 @@ export function bindViewport({ doc, onChange }: BindOptions): ViewportBinding | 
   // ---------- 缩放 ----------
   function onWheel(ev: WheelEvent): void {
     ev.preventDefault();
+    if (ev.altKey && onLevelStep !== undefined) {
+      onLevelStep(ev.deltaY > 0 ? -1 : 1, { x: ev.clientX, y: ev.clientY });
+      return;
+    }
     stopTransition();
     // 统一成像素增量：不同浏览器 deltaMode 不同，这里只处理 line/page 的近似换算
     let unit = 1;
