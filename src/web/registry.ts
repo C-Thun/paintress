@@ -13,6 +13,8 @@ export interface ProjectEntry {
   name: string;
   root: string;
   rootReal: string;
+  /** 列举设计稿的最大目录深度（默认 3，上限 6） */
+  depth: number;
   /** agent 连接（attach），断开即移除 */
   agents: Set<symbol>;
   /** 浏览器 SSE 连接 */
@@ -21,20 +23,33 @@ export interface ProjectEntry {
   createdAt: number;
 }
 
+export const DEFAULT_DEPTH = 3;
+export const MAX_DEPTH = 6;
+
+/** 深度夹取：非法/缺省回默认，超限封顶 */
+function clampDepth(raw: number | undefined): number {
+  if (raw === undefined || !Number.isFinite(raw)) return DEFAULT_DEPTH;
+  const n = Math.trunc(raw);
+  if (n < 1) return 1;
+  return Math.min(n, MAX_DEPTH);
+}
+
 export const DESIGN_EXT = new Set(['.ptr', '.pen']);
 
 export class Registry {
   private readonly projects = new Map<string, ProjectEntry>();
 
-  /** 注册（或复用）项目目录；同名不同目录视为冲突 */
-  watch(projectNameRaw: string, dir: string): ProjectEntry {
+  /** 注册（或复用）项目目录；同名不同目录视为冲突。depth 默认 3、上限 6 */
+  watch(projectNameRaw: string, dir: string, depth?: number): ProjectEntry {
     const name = sanitizeProjectName(projectNameRaw);
     const { root, rootReal } = resolveProjectDir(dir);
+    const wanted = clampDepth(depth);
     const existing = this.projects.get(name);
     if (existing) {
       if (existing.rootReal !== rootReal) {
         throw new Error(`项目名 "${name}" 已被 ${existing.root} 占用，请换一个名字（--name）`);
       }
+      if (depth !== undefined) existing.depth = wanted;
       existing.lastAccess = Date.now();
       return existing;
     }
@@ -42,6 +57,7 @@ export class Registry {
       name,
       root,
       rootReal,
+      depth: wanted,
       agents: new Set(),
       browsers: new Set(),
       lastAccess: Date.now(),
@@ -63,12 +79,12 @@ export class Registry {
     return [...this.projects.values()];
   }
 
-  /** 列出项目内设计稿相对路径（浅层递归，跳过隐藏与依赖目录） */
-  listDesigns(entry: ProjectEntry, maxDepth = 6): string[] {
+  /** 列出项目内设计稿相对路径（深度由 entry.depth 控制，默认 3、上限 6） */
+  listDesigns(entry: ProjectEntry): string[] {
     const out: string[] = [];
     const skip = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'target', '.venv', 'venv', '__pycache__']);
     const walk = (dir: string, rel: string, depth: number): void => {
-      if (depth > maxDepth) return;
+      if (depth > entry.depth) return;
       let entries: string[];
       try {
         entries = readdirSync(dir);
@@ -101,6 +117,7 @@ export class Registry {
     return {
       name: entry.name,
       root: entry.root,
+      depth: entry.depth,
       fileCount: this.listDesigns(entry).length,
       agentConns: entry.agents.size,
       browserConns: entry.browsers.size,

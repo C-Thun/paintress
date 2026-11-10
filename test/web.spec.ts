@@ -1,11 +1,11 @@
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startDaemon, type DaemonHandle } from '../src/web/daemon.js';
 import { sendRequest, attachPersistent, isDaemonRunning } from '../src/web/client.js';
 import { deriveProjectName, safeJoin, sanitizeProjectName } from '../src/web/paths.js';
-import { Registry } from '../src/web/registry.js';
+import { DEFAULT_DEPTH, MAX_DEPTH, Registry } from '../src/web/registry.js';
 
 const PROJECT = 'test-proj';
 
@@ -96,39 +96,71 @@ describe('项目注册', () => {
 });
 
 describe('HTTP 路由', () => {
-  it('根路径列出项目', async () => {
+  it('GET /api/projects 返回项目 JSON', async () => {
+    const res = await fetch(`${baseUrl}/api/projects`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; projects: { name: string; depth: number }[]; pid: number };
+    expect(body.ok).toBe(true);
+    expect(body.pid).toBe(daemon.pid);
+    const hit = body.projects.find((p) => p.name === PROJECT);
+    expect(hit?.depth).toBe(3);
+  });
+
+  it('GET /api/projects/:name/files 返回文件列表', async () => {
+    const res = await fetch(`${baseUrl}/api/projects/${PROJECT}/files`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; files: string[]; depth: number };
+    expect(body.ok).toBe(true);
+    expect(body.files.sort()).toEqual(['design.pen', 'sub/ref.pen']);
+    expect(body.depth).toBe(3);
+  });
+
+  it('GET /api/projects/:unknown/files → 404 JSON', async () => {
+    const res = await fetch(`${baseUrl}/api/projects/nope/files`);
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+  });
+
+  it('GET / 有前端产物时返回 SPA 外壳', async () => {
     const res = await fetch(`${baseUrl}/`);
-    const html = await res.text();
     expect(res.status).toBe(200);
-    expect(html).toContain(PROJECT);
+    const html = await res.text();
+    // ui/dist 存在 → SPA 壳（含 #root）；否则降级页（含项目名）
+    expect(html.includes('id="root"') || html.includes(PROJECT)).toBe(true);
   });
 
-  it('项目路径列出设计稿', async () => {
-    const res = await fetch(`${baseUrl}/${PROJECT}`);
-    const html = await res.text();
-    expect(res.status).toBe(200);
-    expect(html).toContain('design.pen');
-    expect(html).toContain('sub/ref.pen');
-  });
-
-  it('渲染设计稿：含 data-node-id 与热重载脚本', async () => {
-    const res = await fetch(`${baseUrl}/${PROJECT}/design.pen`);
+  it('GET /render/:project/* 渲染页含 data-node-id 与 base href', async () => {
+    const res = await fetch(`${baseUrl}/render/${PROJECT}/design.pen`);
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('data-node-id="title"');
-    expect(html).toContain('EventSource');
+    expect(html).toContain(`<base href="/files/${PROJECT}/">`);
   });
 
-  it('未注册项目 404', async () => {
+  it('GET /files/:project/* 提供项目静态资源', async () => {
+    writeFileSync(join(projectDir, 'dot.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const res = await fetch(`${baseUrl}/files/${PROJECT}/dot.png`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+  });
+
+  it('未知前端路径回退 SPA（200，由前端渲染 404）', async () => {
     const res = await fetch(`${baseUrl}/no-such-project`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('id="root"');
   });
 
-  it('路径穿越被拦截（编码形式）', async () => {
-    const res = await fetch(`${baseUrl}/${PROJECT}/%2e%2e%2f%2e%2e%2fetc%2fpasswd`);
+  it('路径穿越在 /files 被拦截', async () => {
+    const res = await fetch(`${baseUrl}/files/${PROJECT}/%2e%2e%2f%2e%2e%2fetc%2fpasswd`);
     expect(res.status).toBe(404);
-    const body = await res.text();
-    expect(body).not.toContain('root:');
+    expect(await res.text()).not.toContain('root:');
+  });
+
+  it('路径穿越在 /render 被拦截', async () => {
+    const res = await fetch(`${baseUrl}/render/${PROJECT}/%2e%2e%2f%2e%2e%2fetc%2fpasswd`);
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain('root:');
   });
 });
 
@@ -179,6 +211,38 @@ describe('Registry 内部行为', () => {
       const reg = new Registry();
       const entry = reg.watch('scan', dir);
       expect(reg.listDesigns(entry)).toEqual(['a.pen']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('listDesigns 默认深度 3，只认 .ptr/.pen', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'paintress-depth-'));
+    try {
+      const mk = (p: string, content = '{}'): void => {
+        mkdirSync(dirname(join(dir, p)), { recursive: true });
+        writeFileSync(join(dir, p), content);
+      };
+      mk('a.pen');
+      mk('d1/b.ptr');
+      mk('d1/d2/c.pen');
+      mk('d1/d2/d3/e.pen');
+      mk('d1/d2/d3/d4/f.pen');
+      mk('d1/notes.txt');
+
+      const reg = new Registry();
+      const def = reg.watch('depth-default', dir);
+      expect(def.depth).toBe(DEFAULT_DEPTH);
+      expect(reg.listDesigns(def).sort()).toEqual(['a.pen', 'd1/b.ptr', 'd1/d2/c.pen', 'd1/d2/d3/e.pen']);
+
+      const shallow = reg.watch('depth-1', dir, 1);
+      expect(reg.listDesigns(shallow).sort()).toEqual(['a.pen', 'd1/b.ptr']);
+
+      const deep = reg.watch('depth-6', dir, 6);
+      expect(reg.listDesigns(deep)).toContain('d1/d2/d3/d4/f.pen');
+
+      const capped = reg.watch('depth-99', dir, 99);
+      expect(capped.depth).toBe(MAX_DEPTH);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -125,8 +125,15 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (cmd === 'watch') {
-      if (!file || !a1) throw new Error('用法：paintress watch <name> <dir>');
-      console.log(JSON.stringify(await sendRequest({ kind: 'watch', project: file, dir: a1 }, 8000), null, 2));
+      if (!file || !a1) throw new Error('用法：paintress watch <name> <dir> [--depth 1..6]');
+      const depth = flagNum(flags, 'depth');
+      console.log(
+        JSON.stringify(
+          await sendRequest({ kind: 'watch', project: file, dir: a1, ...(depth !== undefined ? { depth } : {}) }, 8000),
+          null,
+          2,
+        ),
+      );
       return 0;
     }
     if (cmd === 'unwatch') {

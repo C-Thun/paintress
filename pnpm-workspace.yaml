@@ -1,2 +1,9 @@
+---
+packages:
+  - 'ui'
+
+# 阻止传递依赖引入 git://、file:// 等异型源（供应链防护，零成本）
+blockExoticSubdeps: true
+
 onlyBuiltDependencies:
   - esbuild

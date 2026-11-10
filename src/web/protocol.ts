@@ -3,7 +3,7 @@
 export type ClientRequest =
   | { kind: 'ping' }
   | { kind: 'status' }
-  | { kind: 'watch'; project: string; dir: string }
+  | { kind: 'watch'; project: string; dir: string; depth?: number }
   | { kind: 'unwatch'; project: string }
   | { kind: 'attach'; project: string }
   | { kind: 'detach'; project: string }
@@ -12,6 +12,8 @@ export type ClientRequest =
 export interface ProjectInfo {
   name: string;
   root: string;
+  /** 列举设计稿的最大目录深度（默认 3，上限 6） */
+  depth: number;
   fileCount: number;
   agentConns: number;
   browserConns: number;

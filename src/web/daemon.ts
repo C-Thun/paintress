@@ -1,9 +1,12 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { createServer as createNetServer, type Server as NetServer, type Socket } from 'node:net';
-import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync,
+} from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { extname } from 'node:path';
-import { Registry, DESIGN_EXT } from './registry.js';
+import { dirname, extname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Registry } from './registry.js';
 import { LineDecoder, encodeLine, type ClientRequest, type ServerResponse } from './protocol.js';
 import { lockPath, pidPath, safeJoin, socketPath } from './paths.js';
 import { WatchManager } from './watcher.js';
@@ -11,6 +14,44 @@ import { loadDoc, renderDocument } from '../index.js';
 
 const VERSION = '0.1.0';
 const DEFAULT_PORT = 3316;
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+};
+
+function mimeOf(filePath: string): string {
+  return MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/** 定位前端产物目录：源码运行 / 构建后 / cwd 三种候选，找不到则回退精简视图 */
+function findUiDist(): string | null {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    resolve(here, '../../ui/dist'), // src/web/daemon.ts（开发/测试）
+    resolve(here, '../ui/dist'), // dist/*.js（构建后）
+    resolve(process.cwd(), 'ui/dist'),
+  ];
+  for (const c of candidates) {
+    if (existsSync(join(c, 'index.html'))) return c;
+  }
+  return null;
+}
 
 export interface DaemonOptions {
   port?: number;
@@ -160,7 +201,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               });
               break;
             case 'watch':
-              reply({ ok: true, watched: true, project: registry.info(registry.watch(req.project, req.dir)) });
+              reply({ ok: true, watched: true, project: registry.info(registry.watch(req.project, req.dir, req.depth)) });
               break;
             case 'unwatch':
               reply({ ok: true, unwatched: registry.remove(req.project) });
@@ -194,6 +235,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
 
   const sockServer: NetServer = createNetServer(handleClient);
 
+  const uiDist = findUiDist();
+
   const httpServer: HttpServer = createHttpServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const segments = url.pathname.split('/').filter((s) => s !== '');
@@ -202,23 +245,39 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
       res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
       res.end(body);
     };
+    const sendJson = (code: number, payload: unknown): void =>
+      send(code, JSON.stringify(payload), 'application/json; charset=utf-8');
 
     try {
-      // 根：项目列表
-      if (segments.length === 0) {
-        const projects = registry.all();
-        const items = projects
-          .map((p) => {
-            const info = registry.info(p);
-            return `<div class="card"><h2 style="margin:0 0 4px"><a href="/${encodeURIComponent(p.name)}">${esc(p.name)}</a></h2><div class="meta">${esc(info.root)} · ${info.fileCount} 个设计稿 · agent ${info.agentConns} · 浏览器 ${info.browserConns}</div></div>`;
-          })
-          .join('');
-        send(200, layout('项目', `<h1>paintress</h1><div class="meta">pid ${process.pid} · 端口 ${opts.port ?? DEFAULT_PORT} · 运行 ${Math.round((Date.now() - startedAt) / 1000)}s</div>${items || '<p class="empty">还没有注册任何项目。用 <code>paintress watch &lt;name&gt; &lt;dir&gt;</code> 注册。</p>'}`));
+      // ---------- JSON API ----------
+      if (segments[0] === 'api') {
+        if (segments[1] === 'projects' && segments.length === 2) {
+          sendJson(200, {
+            ok: true,
+            pid: process.pid,
+            uptimeMs: Date.now() - startedAt,
+            version: VERSION,
+            projects: registry.all().map((p) => registry.info(p)),
+          });
+          return;
+        }
+        if (segments[1] === 'projects' && segments[3] === 'files') {
+          const name = decodeURIComponent(segments[2] ?? '');
+          const entry = registry.get(name);
+          if (!entry) {
+            sendJson(404, { ok: false, error: `未注册的项目：${name}` });
+            return;
+          }
+          entry.lastAccess = Date.now();
+          sendJson(200, { ok: true, project: entry.name, depth: entry.depth, files: registry.listDesigns(entry) });
+          return;
+        }
+        sendJson(404, { ok: false, error: `未知 API：${url.pathname}` });
         return;
       }
 
-      // SSE：/__events?project=&path=
-      if (segments[0] === '__events') {
+      // ---------- SSE 热重载 ----------
+      if (segments[0] === 'events') {
         const project = url.searchParams.get('project') ?? '';
         const relPath = url.searchParams.get('path') ?? '';
         const entry = registry.get(project);
@@ -252,8 +311,96 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         return;
       }
 
-      // /{project}[/path]
-      const projectName = segments[0] ?? '';
+      // ---------- 渲染页（iframe 用）----------
+      if (segments[0] === 'render' && segments.length >= 3) {
+        const name = decodeURIComponent(segments[1] ?? '');
+        const entry = registry.get(name);
+        if (!entry) {
+          send(404, 'project not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        entry.lastAccess = Date.now();
+        const relPath = segments.slice(2).map(decodeURIComponent).join('/');
+        const abs = safeJoin(entry.rootReal, relPath);
+        if (!abs) {
+          send(404, 'file not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        const loaded = loadDoc(abs);
+        const rendered = renderDocument(loaded.doc, { title: relPath });
+        // base href 让图像填充等相对资源解析到 /files/<project>/<dir>/
+        const dir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/') + 1) : '';
+        const baseHref = `/files/${encodeURIComponent(entry.name)}/${dir
+          .split('/')
+          .filter((s) => s !== '')
+          .map(encodeURIComponent)
+          .join('/')}${dir ? '/' : ''}`;
+        send(200, rendered.html.replace('<head>', `<head>\n<base href="${baseHref}">`));
+        return;
+      }
+
+      // ---------- 项目内静态资源（图片、字体等）----------
+      if (segments[0] === 'files' && segments.length >= 3) {
+        const name = decodeURIComponent(segments[1] ?? '');
+        const entry = registry.get(name);
+        if (!entry) {
+          send(404, 'project not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        const relPath = segments.slice(2).map(decodeURIComponent).join('/');
+        const abs = safeJoin(entry.rootReal, relPath);
+        if (!abs) {
+          send(404, 'file not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        const buf = await readFile(abs);
+        res.writeHead(200, { 'content-type': mimeOf(abs), 'cache-control': 'no-cache' });
+        res.end(buf);
+        return;
+      }
+
+      // ---------- 前端静态产物（ui/dist）----------
+      if (uiDist !== null) {
+        const rel = segments.map(decodeURIComponent).join('/');
+        const candidate = rel === '' ? join(uiDist, 'index.html') : join(uiDist, rel);
+        if (candidate.startsWith(uiDist) && existsSync(candidate) && statSync(candidate).isFile()) {
+          const buf = await readFile(candidate);
+          res.writeHead(200, { 'content-type': mimeOf(candidate), 'cache-control': 'no-cache' });
+          res.end(buf);
+          return;
+        }
+        // SPA 回退：未知路径一律回 index.html
+        const index = join(uiDist, 'index.html');
+        if (existsSync(index)) {
+          const buf = await readFile(index);
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+          res.end(buf);
+          return;
+        }
+      }
+
+      // ---------- 降级：未构建前端时的内嵌页面 ----------
+      if (segments.length === 0) {
+        const projects = registry.all();
+        const items = projects
+          .map((p) => {
+            const info = registry.info(p);
+            return `<div class="card"><h2 style="margin:0 0 4px"><a href="/${encodeURIComponent(p.name)}">${esc(p.name)}</a></h2><div class="meta">${esc(info.root)} · ${info.fileCount} 个设计稿 · agent ${info.agentConns} · 浏览器 ${info.browserConns}</div></div>`;
+          })
+          .join('');
+        send(
+          200,
+          layout(
+            '项目',
+            `<h1>paintress</h1><div class="meta">pid ${process.pid} · 端口 ${opts.port ?? DEFAULT_PORT} · 运行 ${Math.round((Date.now() - startedAt) / 1000)}s</div>` +
+              `<p class="meta">前端未构建（<code>ui/dist</code> 不存在），当前为精简视图。</p>` +
+              (items || '<p class="empty">还没有注册任何项目。用 <code>paintress watch &lt;name&gt; &lt;dir&gt;</code> 注册。</p>'),
+          ),
+        );
+        return;
+      }
+
+      const projectName = decodeURIComponent(segments[0] ?? '');
       const entry = registry.get(projectName);
       if (!entry) {
         send(404, layout('未找到', `<h1>404</h1><p>未注册的项目：<code>${esc(projectName)}</code></p><p><a href="/">返回</a></p>`));
@@ -261,47 +408,25 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
       }
       entry.lastAccess = Date.now();
 
-      // /{project} → 文件列表
       if (segments.length === 1) {
         const files = registry.listDesigns(entry);
         const list = files
-          .map((f) => `<li><a href="/${encodeURIComponent(entry.name)}/${f.split('/').map(encodeURIComponent).join('/')}">${esc(f)}</a></li>`)
+          .map((f) => `<li><a href="/render/${encodeURIComponent(entry.name)}/${f.split('/').map(encodeURIComponent).join('/')}">${esc(f)}</a></li>`)
           .join('');
-        send(200, layout(entry.name, `<h1>${esc(entry.name)}</h1><div class="meta">${esc(entry.root)}</div><h2>设计稿（${files.length}）</h2>${files.length ? `<ul>${list}</ul>` : '<p class="empty">目录下没有 .ptr / .pen 文件</p>'}<p><a href="/">← 项目列表</a></p>`));
+        send(
+          200,
+          layout(
+            entry.name,
+            `<h1>${esc(entry.name)}</h1><div class="meta">${esc(entry.root)} · depth ${entry.depth}</div>` +
+              `<h2>设计稿（${files.length}）</h2>` +
+              (files.length ? `<ul>${list}</ul>` : '<p class="empty">目录下没有 .ptr / .pen 文件</p>') +
+              '<p><a href="/">← 项目列表</a></p>',
+          ),
+        );
         return;
       }
 
-      const relPath = segments.slice(1).map(decodeURIComponent).join('/');
-      const abs = safeJoin(entry.rootReal, relPath);
-      if (!abs) {
-        send(404, layout('未找到', `<h1>404</h1><p>文件不存在或路径越界：<code>${esc(relPath)}</code></p><p><a href="/${encodeURIComponent(entry.name)}">返回项目</a></p>`));
-        return;
-      }
-
-      const ext = extname(abs).toLowerCase();
-      if (DESIGN_EXT.has(ext)) {
-        const loaded = loadDoc(abs);
-        const rendered = renderDocument(loaded.doc, { title: relPath });
-        const liveScript = `<script>
-(function(){
-  var es = new EventSource('/__events?project=${encodeURIComponent(entry.name)}&path=${encodeURIComponent(relPath)}');
-  es.addEventListener('change', function(){ location.reload(); });
-})();
-</script>`;
-        send(200, rendered.html.replace('</body>', `${liveScript}</body>`));
-        return;
-      }
-
-      // 静态资源（图像填充引用的相对路径等）
-      const mime: Record<string, string> = {
-        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-        '.webp': 'image/webp', '.svg': 'image/svg+xml', '.css': 'text/css; charset=utf-8',
-        '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8',
-        '.woff2': 'font/woff2', '.woff': 'font/woff',
-      };
-      const buf = await readFile(abs);
-      res.writeHead(200, { 'content-type': mime[ext] ?? 'application/octet-stream', 'cache-control': 'no-cache' });
-      res.end(buf);
+      send(404, layout('未找到', '<h1>404</h1><p><a href="/">返回</a></p>'));
     } catch (cause) {
       send(500, layout('错误', `<h1>500</h1><pre>${esc(cause instanceof Error ? cause.message : String(cause))}</pre>`));
     }

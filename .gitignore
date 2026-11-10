@@ -2,3 +2,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+
+# ui 构建产物与依赖
+ui/dist/
+ui/node_modules/
+.tmp-*

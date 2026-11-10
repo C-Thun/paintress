@@ -23,9 +23,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && pnpm --dir ui build",
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:server": "tsdown",
+    "build:ui": "pnpm --dir ui build",
+    "dev:ui": "pnpm --dir ui dev"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
