@@ -4,7 +4,7 @@ import {
   closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, join, resolve } from 'node:path';
+import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Registry } from './registry.js';
 import { LineDecoder, encodeLine, type ClientRequest, type ServerResponse } from './protocol.js';
@@ -335,7 +335,13 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           .filter((s) => s !== '')
           .map(encodeURIComponent)
           .join('/')}${dir ? '/' : ''}`;
-        send(200, rendered.html.replace('<head>', `<head>\n<base href="${baseHref}">`));
+        let html = rendered.html.replace('<head>', `<head>\n<base href="${baseHref}">`);
+        // iframe 嵌入（embed=1）时由父页面订阅 SSE；直接访问时恢复自刷新（旧行为）
+        if (url.searchParams.get('embed') !== '1') {
+          const liveScript = `<script>\n(function(){\n  var es = new EventSource('/events?project=${encodeURIComponent(entry.name)}&path=${encodeURIComponent(relPath)}');\n  es.addEventListener('change', function(){ location.reload(); });\n})();\n</script>`;
+          html = html.replace('</body>', `${liveScript}</body>`);
+        }
+        send(200, html);
         return;
       }
 
@@ -363,7 +369,10 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
       if (uiDist !== null) {
         const rel = segments.map(decodeURIComponent).join('/');
         const candidate = rel === '' ? join(uiDist, 'index.html') : join(uiDist, rel);
-        if (candidate.startsWith(uiDist) && existsSync(candidate) && statSync(candidate).isFile()) {
+        // 目录边界：relative 判定最稳（Windows 分隔符、dist-evil 前缀都不误判）
+        const relInside = relative(uiDist, candidate);
+        const within = relInside === '' || (!relInside.startsWith('..') && !relInside.startsWith('/') && !relInside.startsWith('\\'));
+        if (within && existsSync(candidate) && statSync(candidate).isFile()) {
           const buf = await readFile(candidate);
           res.writeHead(200, { 'content-type': mimeOf(candidate), 'cache-control': 'no-cache' });
           res.end(buf);

@@ -42,9 +42,9 @@ export function fetchFiles(project: string): Promise<FilesResponse> {
   return getJson<FilesResponse>(`/api/projects/${encodeURIComponent(project)}/files`);
 }
 
-/** iframe 地址：daemon 直接返回带 data-node-id 的渲染 HTML */
+/** iframe 地址：daemon 返回带 data-node-id 的渲染 HTML；embed=1 时不自刷新（由父页面管 SSE） */
 export function renderUrl(project: string, file: string): string {
-  return `/render/${encodeURIComponent(project)}/${file.split('/').map(encodeURIComponent).join('/')}`;
+  return `/render/${encodeURIComponent(project)}/${file.split('/').map(encodeURIComponent).join('/')}?embed=1`;
 }
 
 /** SSE 地址：文件变更推送 */

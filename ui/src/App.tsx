@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, on, onMount, Show } from 'solid-js';
+import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from 'solid-js';
 import { fetchFiles, fetchProjects, renderUrl, eventsUrl, type ProjectInfo } from './api';
 
 export default function App() {
@@ -87,6 +87,7 @@ export default function App() {
       source.addEventListener('change', () => setReloadKey((n) => n + 1));
     }),
   );
+  onCleanup(() => source?.close());
 
   return (
     <div class="app">
@@ -182,7 +183,7 @@ export default function App() {
               重新渲染
             </button>
           </div>
-          <iframe class="preview" title="design preview" src={iframeSrc()} />
+          <iframe class="preview" title="design preview" sandbox="allow-same-origin" src={iframeSrc()} />
         </Show>
       </main>
     </div>

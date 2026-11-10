@@ -129,12 +129,22 @@ describe('HTTP 路由', () => {
     expect(html.includes('id="root"') || html.includes(PROJECT)).toBe(true);
   });
 
-  it('GET /render/:project/* 渲染页含 data-node-id 与 base href', async () => {
+  it('GET /render/:project/* 直接访问：含 data-node-id、base href、自刷新脚本', async () => {
     const res = await fetch(`${baseUrl}/render/${PROJECT}/design.pen`);
     const html = await res.text();
     expect(res.status).toBe(200);
     expect(html).toContain('data-node-id="title"');
     expect(html).toContain(`<base href="/files/${PROJECT}/">`);
+    expect(html).toContain('EventSource'); // 直接访问保留热重载
+  });
+
+  it('GET /render/:project/*?embed=1：iframe 模式不含自刷新脚本', async () => {
+    const res = await fetch(`${baseUrl}/render/${PROJECT}/design.pen?embed=1`);
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain('data-node-id="title"');
+    expect(html).toContain(`<base href="/files/${PROJECT}/">`);
+    expect(html).not.toContain('EventSource'); // 由父页面订阅 SSE
   });
 
   it('GET /files/:project/* 提供项目静态资源', async () => {
