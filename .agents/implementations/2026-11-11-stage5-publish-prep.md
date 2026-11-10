@@ -54,7 +54,15 @@ src/schema/nodes.ts(209,14): error TS7056: The inferred type of this node exceed
 the maximum length the compiler will serialize. An explicit type annotation is needed.
 ```
 
-即 `PLAN.md#未决问题` 里的债仍在（此前记录为「已做」与事实不符）。0.1.0 暂不发 `.d.ts`，修复方向：给 `NodeSchema` 显式类型注解（会牺牲部分推断精度）或改用 api-extractor。
+即 `PLAN.md#未决问题` 里的债仍在（此前记录为「已做」与事实不符）。
+
+实验（同日）：给 `NodeSchema` 加显式注解
+
+```ts
+export const NodeSchema: z.ZodType<Record<string, unknown>, z.ZodTypeDef, unknown> = z.union([...]);
+```
+
+确实能通过 `pnpm check` 并产出 `.d.ts`，但 `dist/index-*.d.ts` 高达 **1548 KB**（整包 unpacked 从 164 KB 涨到 1.67 MB），因为其余导出 schema 的推断类型仍被完整序列化。结论：0.1.0 暂不发布类型产物；要发需要先给所有导出 schema 加显式注解瘦身，或改为按需导出 + api-extractor。实验已回滚（`dts: false`）。
 
 ## 未做
 

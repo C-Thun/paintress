@@ -21,6 +21,6 @@
 
 ## 未决问题
 
-- **dts 生成被禁用（债务）**：zod passthrough 推断类型超过 TS 序列化上限（TS7056，见 src/schema/document.ts、nodes.ts）。发布 npm 前需给导出 schema 加显式类型注解或换 api-extractor，再恢复 `--dts`。
+- **dts 生成被禁用（债务）**：zod passthrough 推断类型超过 TS 序列化上限（TS7056，实测定位在 `src/schema/nodes.ts:209` 的 `NodeSchema`）。2026-11-11 实验：只给 `NodeSchema` 加显式注解即可通过构建，但 `index.d.ts` 达 1548 KB（包体从 164 KB → 1.67 MB），故 0.1.0 不发类型产物；要发需先给全部导出 schema 显式注解瘦身，或按需导出 + api-extractor。
 - **格式规格存在缺口**（2 处，2026-11-10）：imports 跨文件 id 引用语法缺实例；corner_radius 四元组角顺序未确认。详情与证据标注见 `format/spec.yaml` 的 `ptr.known_gaps`。
 - **README 免责声明**：当前 README 不提及任何第三方产品，因此无需声明；若将来在文档中描述性提及格式或产品名，需补「非官方、不隶属」声明。依据见 `specs/pen-format-licensing.md#红线 3`。
