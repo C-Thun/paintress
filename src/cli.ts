@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { TOOLS, type ToolOutput } from './mcp/tools.js';
 import { runStdioServer } from './mcp/server.js';
 import { startDaemon } from './web/daemon.js';
@@ -285,9 +287,21 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-// 直接执行时（bin）启动；被 import 时不执行
-const isDirect = process.argv[1]?.endsWith('cli.js') || process.argv[1]?.endsWith('cli.ts');
-if (isDirect) {
+// 直接执行时（bin）启动；被 import 时不执行。
+// 不能用 argv[1].endsWith('cli.js') 判断：npm 安装后的 bin 是指向 dist/cli.js 的符号链接，
+// argv[1] 变成 `.../node_modules/.bin/paintress`，后缀匹配会失败 → 静默退出 0。
+// 改用 realpath 比较：符号链接、`node dist/cli.js`、直接执行三种情况下都能正确识别。
+function isDirectExecution(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) {
   void main(process.argv.slice(2)).then((code) => {
     if (code !== 0) process.exitCode = code;
   });
