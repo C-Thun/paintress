@@ -66,3 +66,9 @@
 - 新 clone 重建通过：`pnpm install` / `build` / `test` 全绿（117 用例），基线不变。
 - 顺带修复 pnpm 11+ 构建白名单字段失效（`allowBuilds` 取代 `onlyBuiltDependencies`）。
 - 证据：`.agents/implementations/2026-11-11-repo-migration.md`、`2026-11-11-pnpm-allow-builds.md`。
+
+### 阶段 4 剩余 — 嵌套层级切换（2026-11-11）
+
+- `Alt`+点击选上一层；`Alt`+滚轮上/下一级（普通滚轮已是缩放，层级导航让给 Alt；裁决理由记录在实现记录里）。
+- 顺带修复：焦点类选择（点标记 / 层级切换）面包屑不同步，`chainOf()` 成为唯一来源。
+- 证据：`.agents/implementations/2026-11-11-stage4-nesting.md`。

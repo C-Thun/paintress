@@ -13,8 +13,8 @@
 | 1 | MCP 工具：读 / 查 / 改 / 插 / 删 / 校验 | 已完成（2026-11-10，9 工具 + CLI，记录见 `.agents/implementations/2026-11-10-stage1-core.md` 与 `-stage1-mcp-cli.md`） |
 | 2 | 渲染器：`.pen` → HTML/CSS，+ headless 截图出 PNG | 已完成（2026-11-10，视觉验收通过，记录见 `.agents/implementations/2026-11-10-stage2-render.md`） |
 | 3 | 查看器：本地 web server + 文件监听热重载 | 已完成（2026-11-10，统一进程方案 + 三处修正，记录见 `.agents/implementations/2026-11-10-stage3-web.md`） |
-| 4 | 标记：点击选中 + 短号 + 变更高亮 | **部分完成**（2026-11-10）：点击选中、`#N` 短号、`paintress_marks`、变更高亮均已上线；剩「嵌套层级切换」，见 `.agents/memory/FUTURE.md#阶段 4 剩余 — 嵌套层级切换`（阶段 6 已完成，已满足触发条件）。记录：`.agents/implementations/2026-11-10-stage4-marks.md` |
-| 5 | 发布与安装规范化：npm 包、多客户端配置、Registry | 未开始；细节见 `.agents/memory/FUTURE.md#阶段 5 — MCP 发布与安装规范化`（触发：阶段 4/6 合并后发 0.2.0） |
+| 4 | 标记：点击选中 + 短号 + 变更高亮 | 已完成（2026-11-10 上线主体；2026-11-11 补齐嵌套层级切换）：点击选中、`#N` 短号、`paintress_marks`、变更高亮、Alt+点击选父级、Alt+滚轮切层级。记录：`.agents/implementations/2026-11-10-stage4-marks.md`、`.agents/implementations/2026-11-11-stage4-nesting.md` |
+| 5 | 发布与安装规范化：npm 包、多客户端配置、Registry | **下一个开工项**（阶段 4/6 均已收口，触发条件已满足）；细节见 `.agents/memory/FUTURE.md#阶段 5 — MCP 发布与安装规范化` |
 | 6 | 画布交互：多画板导航 + 平移缩放 | 已完成（2026-11-11，五步全部落地，记录见 `.agents/implementations/2026-11-11-stage6-canvas.md`）；方案与边界见 `specs/canvas-interaction.md` |
 
 阶段 2 是地基，架构决定成败，其余三阶段都建立在它之上（理由见 `.agents/memory/ARCHITECTURE.md#D-002`）。
