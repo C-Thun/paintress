@@ -15,6 +15,7 @@
 | 3 | 查看器：本地 web server + 文件监听热重载 | 已完成（2026-11-10，统一进程方案 + 三处修正，记录见 `.agents/implementations/2026-11-10-stage3-web.md`） |
 | 4 | 标记：点击选中 + 短号 + 变更高亮 | 未开始；设计与依赖见 `.agents/memory/FUTURE.md#阶段 4 — 标记、短号与变更高亮` |
 | 5 | 发布与安装规范化：npm 包、多客户端配置、Registry | 未开始；细节见 `.agents/memory/FUTURE.md#阶段 5 — MCP 发布与安装规范化` |
+| 6 | 画布交互：多画板导航 + 平移缩放 | 未开始；方案见 `specs/canvas-interaction.md` |
 
 阶段 2 是地基，架构决定成败，其余三阶段都建立在它之上（理由见 `.agents/memory/ARCHITECTURE.md#D-002`）。
 
