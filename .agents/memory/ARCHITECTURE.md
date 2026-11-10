@@ -59,7 +59,7 @@
   - GitHub 组织：handle **`aliciai-dev`**，display name 设为 `Aliciai`（operator 已注册该 org）。
   - npm 命名空间：**`@aliciai`**（operator 已持有该 scope）。
   - 两平台命名空间独立，handle 与 scope 不必同名。
-- **后果**：本仓库（`c-thun/paintress`）如迁入 `aliciai-dev`，用 GitHub 的 Transfer repository 保留历史与重定向；npm 侧可用 `@aliciai/paintress` 或继续使用 unscoped `paintress`（实测未占用），待发布时决定。
+- **后果**（2026-11-11 更新）：仓库已迁至 `aliciai-dev/paintress`（GitHub Transfer，原地址 `C-Thun/paintress` 自动重定向），迁移过程见 `.agents/implementations/2026-11-11-repo-migration.md`；npm 侧可用 `@aliciai/paintress` 或继续使用 unscoped `paintress`（实测未占用），待发布时决定（见 `FUTURE.md#阶段 5`）。
 - **日期**：2026-11-10（定稿 2026-11-10）
 
 ### D-006 — 自有格式 `.ptr`：双层冻结/演进

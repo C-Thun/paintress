@@ -4,6 +4,10 @@
   "description": "Design-document operation layer for AI agents: read, query, edit, render",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aliciai-dev/paintress.git"
+  },
   "engines": {
     "node": ">=22"
   },

@@ -47,6 +47,10 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 
 **已就绪的前置**：GitHub org `aliciai-dev`（display name `Aliciai`）与 npm scope `@aliciai` 均已由 operator 持有，见 `ARCHITECTURE.md#D-005`。
 
+**已知发布阻塞项**（2026-11-11 全新 clone 实测）：
+1. `package.json#exports["./mcp"]` 指向 `dist/mcp/server.js`，但 `tsdown.config.ts` 只打包 `src/index.ts`/`src/cli.ts`，该文件从不产出。CLI 走 bundle 不受影响；库方式 `import 'paintress/mcp'` 会失败。
+2. `files: ["dist"]` 不含 `ui/dist`，而 daemon 按 `dist/../ui/dist` 定位前端产物（`src/web/daemon.ts:48`）→ 从 npm 安装后 viewer 退化为「前端未构建」精简页。
+
 ## 阶段 6 — 画布交互（多画板 + 平移缩放）
 
 **方案已定稿**：`specs/canvas-interaction.md`（现状差距、transform 而非缩放 iframe 的理由、`data-board*` 元数据契约、交互清单、边界、五步顺序）。

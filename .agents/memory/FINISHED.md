@@ -51,3 +51,10 @@
 - `pnpm test`：9 文件 **117 用例全绿**
 - `pnpm build`：daemon 55 kB + ui 22 kB
 - 端到端实测：点击三节点得 `#1 #2 #3`、CLI 改节点后前端精确高亮、控制台零错误
+
+### 仓库迁移到 aliciai-dev（2026-11-11）
+
+- GitHub Transfer 完成，旧地址 `C-Thun/paintress` 自动重定向；本地与远端均为 14 个 commit。
+- 新 clone 重建通过：`pnpm install` / `build` / `test` 全绿（117 用例），基线不变。
+- 顺带修复 pnpm 11+ 构建白名单字段失效（`allowBuilds` 取代 `onlyBuiltDependencies`）。
+- 证据：`.agents/implementations/2026-11-11-repo-migration.md`、`2026-11-11-pnpm-allow-builds.md`。
