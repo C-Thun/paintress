@@ -176,3 +176,36 @@ describe('变量识别边界（$ 前缀不能过宽）', () => {
     expect(r.warnings.some((w) => w.includes('$nope'))).toBe(true);
   });
 });
+
+describe('画布元数据 data-board*（阶段 6 步 1）', () => {
+  it('顶层节点带 data-board="1" 与几何盒', () => {
+    const r = renderFixture('basic.pen');
+    expect(r.html).toContain(
+      'data-node-id="rootF" data-node-type="frame" data-node-name="App" data-board="1" data-board-name="App" data-board-x="0" data-board-y="0" data-board-w="800" data-board-h="600"',
+    );
+  });
+
+  it('嵌套节点不带画布元数据', () => {
+    const r = renderFixture('basic.pen');
+    const tag = /<div [^>]*data-node-id="title"[^>]*>/.exec(r.html)?.[0] ?? '';
+    expect(tag).toContain('data-node-id="title"');
+    expect(tag).not.toContain('data-board');
+  });
+
+  it('多画板：每个顶层节点带偏移几何，画布为包围盒', () => {
+    const r = renderFixture('boards.pen');
+    expect(r.html.match(/data-board="1"/g)?.length).toBe(3);
+    expect(r.html).toContain(
+      'data-node-id="detail" data-node-type="frame" data-node-name="详情" data-board="1" data-board-name="详情" data-board-x="900" data-board-y="0" data-board-w="400" data-board-h="300"',
+    );
+    expect(r.canvas).toEqual({ width: 1300, height: 600 }); // 900+400 是最大右边界
+  });
+
+  it('无名字的画板不输出 data-board-name（回退由前端负责）', () => {
+    const r = renderFixture('boards.pen');
+    const tag = /<div [^>]*data-node-id="ghost"[^>]*>/.exec(r.html)?.[0] ?? '';
+    expect(tag).toContain('data-board="1"');
+    expect(tag).toContain('data-board-w="200"');
+    expect(tag).not.toContain('data-board-name');
+  });
+});

@@ -11,6 +11,17 @@ import {
   type Mark,
   type ProjectInfo,
 } from './api';
+import { bindViewport, type ViewportBinding } from './frame-viewport';
+import { parseViewport } from './viewport';
+
+interface Board {
+  id: string;
+  name?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 interface Crumb {
   id: string;
@@ -35,8 +46,13 @@ export default function App() {
   const [reloadKey, setReloadKey] = createSignal(0);
   const [live, setLive] = createSignal(true);
   const [iframeSrc, setIframeSrc] = createSignal('');
+  const [boards, setBoards] = createSignal<Board[]>([]);
+  const [activeBoard, setActiveBoard] = createSignal<string | null>(null);
+  const [zoom, setZoom] = createSignal(1);
 
   let frameEl: HTMLIFrameElement | undefined;
+  let viewportCtl: ViewportBinding | null = null;
+  let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
   function syncUrl(): void {
     const params = new URLSearchParams();
@@ -93,6 +109,30 @@ export default function App() {
   }
 
   onMount(() => {
+    // 焦点在父页面时也要能：空格临时平移、Ctrl+0/Shift+1 视口快捷键
+    const isTyping = (ev: KeyboardEvent): boolean => {
+      const el = ev.target as HTMLElement | null;
+      return el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA' || el?.isContentEditable === true;
+    };
+    const onKey = (ev: KeyboardEvent): void => {
+      if (isTyping(ev)) return;
+      if (ev.key === ' ' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        viewportCtl?.setSpace(true);
+        ev.preventDefault();
+        return;
+      }
+      if (viewportCtl?.handleKey(ev) === true) ev.preventDefault();
+    };
+    const onKeyUp = (ev: KeyboardEvent): void => {
+      if (ev.key === ' ') viewportCtl?.setSpace(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    onCleanup(() => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    });
+
     const params = new URLSearchParams(location.search);
     void (async () => {
       await loadProjects();
@@ -100,7 +140,9 @@ export default function App() {
       if (p) {
         await openProject(p);
         const f = params.get('file');
-        if (f) setActiveFile(f);
+        // 走 openFile 而不是直接 setActiveFile：后者不会回写 URL，
+        // 刷新后 file 参数会丢（深链只剩 project）
+        if (f) openFile(f);
       }
     })();
   });
@@ -120,6 +162,7 @@ export default function App() {
       '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #f59e0b !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
       '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #f59e0b}50%{box-shadow:inset 0 0 0 2px #fde68a}}',
       'html{cursor:default;}',
+      'html,body{overflow:hidden;}',
     ].join('\n');
     doc.head.appendChild(style);
   }
@@ -134,6 +177,12 @@ export default function App() {
   }
 
   function onFrameClick(ev: MouseEvent): void {
+    // 拖拽画布结束后紧跟的 click 不能当成选中
+    if (viewportCtl?.consumeDragClick() === true) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     const target = ev.target as Element | null;
     const hit = target?.closest('[data-node-id]');
     if (!hit) return;
@@ -168,14 +217,82 @@ export default function App() {
     }
   }
 
+  function readBoards(): Board[] {
+    const doc = frameDoc();
+    if (!doc) return [];
+    return Array.from(doc.querySelectorAll<HTMLElement>('[data-board]')).map((el) => {
+      const d = el.dataset;
+      return {
+        id: d['nodeId'] ?? '',
+        ...(d['boardName'] === undefined ? {} : { name: d['boardName'] }),
+        x: Number(d['boardX'] ?? 0),
+        y: Number(d['boardY'] ?? 0),
+        w: Number(d['boardW'] ?? 0),
+        h: Number(d['boardH'] ?? 0),
+      };
+    });
+  }
+
+  /// 视口持久化键：按「项目 + 文件」（specs §2.1）
+  function viewportKey(): string | null {
+    const p = activeProject();
+    const f = activeFile();
+    return p && f ? `paintress:viewport:${p}/${f}` : null;
+  }
+
+  function persistViewport(vp: { z: number; tx: number; ty: number }): void {
+    const key = viewportKey();
+    if (key === null) return;
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(key, JSON.stringify(vp));
+      } catch {
+        /* 存储不可用时忽略 */
+      }
+    }, 300);
+  }
+
   function bindFrame(): void {
     const doc = frameDoc();
     if (!doc) return;
     ensureFrameStyle();
+    viewportCtl?.destroy();
+    viewportCtl = bindViewport({
+      doc,
+      onChange: (vp) => {
+        setZoom(vp.z);
+        persistViewport(vp);
+      },
+    });
+    setBoards(readBoards());
+    setActiveBoard(null);
+    restoreViewport();
     doc.addEventListener('click', onFrameClick, true);
     doc.addEventListener('mousemove', onFrameMove, true);
     applyHighlight();
     void applyChanges();
+  }
+
+  /// 有持久化则恢复，否则适配整画布
+  function restoreViewport(): void {
+    if (!viewportCtl) return;
+    const key = viewportKey();
+    const stored = key === null ? null : localStorage.getItem(key);
+    const parsed = stored === null ? null : parseViewport(stored);
+    if (parsed !== null) viewportCtl.set(parsed);
+    else viewportCtl.fitAll();
+  }
+
+  function focusBoard(id: string | null): void {
+    setActiveBoard(id);
+    if (!viewportCtl) return;
+    if (id === null) {
+      viewportCtl.fitAll();
+      return;
+    }
+    const b = boards().find((x) => x.id === id);
+    if (b) viewportCtl.focusBox({ x: b.x, y: b.y, w: b.w, h: b.h });
   }
 
   async function selectNode(el: HTMLElement): Promise<void> {
@@ -217,8 +334,24 @@ export default function App() {
   function focusNodeById(id: string): void {
     setSelectedId(id);
     applyHighlight();
-    const el = frameDoc()?.querySelector(`[data-node-id="${cssEscape(id)}"]`);
-    (el as HTMLElement | null)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const doc = frameDoc();
+    const el = doc?.querySelector<HTMLElement>(`[data-node-id="${cssEscape(id)}"]`);
+    if (!el || !doc) return;
+    const canvas = doc.querySelector<HTMLElement>('.ptr-canvas');
+    if (!canvas || !viewportCtl) {
+      el.scrollIntoView({ block: 'center' });
+      return;
+    }
+    // 两个 rect 同受 transform 影响，差值再除 z 即为画布坐标
+    const r = el.getBoundingClientRect();
+    const c = canvas.getBoundingClientRect();
+    const z = viewportCtl.get().z;
+    viewportCtl.centerOn({
+      x: (r.left - c.left) / z,
+      y: (r.top - c.top) / z,
+      w: r.width / z,
+      h: r.height / z,
+    });
   }
 
   async function clearAllMarks(): Promise<void> {
@@ -390,10 +523,36 @@ export default function App() {
                 </code>
               </Show>
             </div>
-            <button class="ghost" onClick={() => setReloadKey((n) => n + 1)}>
-              重新渲染
-            </button>
+            <div class="tools">
+              <span class="hint zoom">{Math.round(zoom() * 100)}%</span>
+              <button class="ghost tiny" title="适应窗口（Shift+1）" onClick={() => viewportCtl?.fitAll()}>
+                适应
+              </button>
+              <button class="ghost tiny" title="100%（Ctrl/Cmd+0）" onClick={() => viewportCtl?.zoomToPercent(1)}>
+                1:1
+              </button>
+              <button class="ghost" onClick={() => setReloadKey((n) => n + 1)}>
+                重新渲染
+              </button>
+            </div>
           </div>
+          <Show when={boards().length > 1}>
+            <div class="boardbar">
+              <button class="board" classList={{ active: activeBoard() === null }} onClick={() => focusBoard(null)}>
+                全部
+              </button>
+              <For each={boards()}>
+                {(b) => (
+                  <button class="board" classList={{ active: activeBoard() === b.id }} onClick={() => focusBoard(b.id)}>
+                    {b.name ?? `#${b.id}`}
+                    <span class="board-size">
+                      {Math.round(b.w)}×{Math.round(b.h)}
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
           <iframe
             ref={(el) => {
               frameEl = el;

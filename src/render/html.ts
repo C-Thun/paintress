@@ -41,6 +41,28 @@ function numericSize(raw: unknown, vars: VarResolver): number | undefined {
   return undefined;
 }
 
+interface NodeBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 节点几何盒：数值尺寸 → sizing 回退值 → 0（与 computeCanvas 同规则） */
+function nodeBox(node: AnyNode, vars: VarResolver): NodeBox {
+  return {
+    x: numericSize(node['x'], vars) ?? 0,
+    y: numericSize(node['y'], vars) ?? 0,
+    w: numericSize(node['width'], vars) ?? sizingFallback(node['width']) ?? 0,
+    h: numericSize(node['height'], vars) ?? sizingFallback(node['height']) ?? 0,
+  };
+}
+
+/** 属性数值：整数不带小数，其余最多 3 位（避免浮点噪声进 HTML） */
+function numStr(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
+}
+
 /** 尺寸映射。axis 仅在 flex 父内有意义（main/cross），绝对定位下两轴同规则 */
 function sizeDecls(
   rawW: unknown, rawH: unknown,
@@ -148,7 +170,7 @@ function polygonClip(count: number): string {
   return `polygon(${pts.join(', ')})`;
 }
 
-function openTag(node: AnyNode, css: string): string {
+function openTag(node: AnyNode, css: string, extraAttrs: readonly string[] = []): string {
   const id = typeof node['id'] === 'string' ? node['id'] : '';
   const type = typeof node['type'] === 'string' ? node['type'] : '?';
   const name = typeof node['name'] === 'string' ? node['name'] : '';
@@ -156,17 +178,38 @@ function openTag(node: AnyNode, css: string): string {
     `data-node-id="${escapeAttr(id)}"`,
     `data-node-type="${escapeAttr(type)}"`,
     ...(name ? [`data-node-name="${escapeAttr(name)}"`] : []),
+    ...extraAttrs,
   ];
   return `<div ${attrs.join(' ')}${css ? ` style="${escapeAttr(css)}"` : ''}>`;
 }
 
-function renderNode(node: AnyNode, parentLayout: 'none' | 'horizontal' | 'vertical', vars: VarResolver, warnings: Warnings): string {
+/** 顶层节点的画布元数据（specs/canvas-interaction.md §2.2） */
+function boardAttrs(node: AnyNode, vars: VarResolver): string[] {
+  const box = nodeBox(node, vars);
+  const name = typeof node['name'] === 'string' ? node['name'] : '';
+  return [
+    'data-board="1"',
+    ...(name ? [`data-board-name="${escapeAttr(name)}"`] : []),
+    `data-board-x="${numStr(box.x)}"`,
+    `data-board-y="${numStr(box.y)}"`,
+    `data-board-w="${numStr(box.w)}"`,
+    `data-board-h="${numStr(box.h)}"`,
+  ];
+}
+
+function renderNode(
+  node: AnyNode,
+  parentLayout: 'none' | 'horizontal' | 'vertical',
+  vars: VarResolver,
+  warnings: Warnings,
+  extraAttrs: readonly string[] = [],
+): string {
   const type = String(node['type'] ?? '?');
   const label = typeof node['name'] === 'string' && node['name'] !== '' ? `${type}: ${String(node['name'])}` : type;
   const positioned = parentLayout === 'none' || node['layoutPosition'] === 'absolute';
 
   if (type === 'script' || type === 'browser' || !KNOWN_RENDER_TYPES.has(type)) {
-    return openTag(node, '') + placeholderBox(label, []) + '</div>';
+    return openTag(node, '', extraAttrs) + placeholderBox(label, []) + '</div>';
   }
 
   const css: CSSDecl[] = [];
@@ -263,7 +306,7 @@ function renderNode(node: AnyNode, parentLayout: 'none' | 'horizontal' | 'vertic
     : '';
 
   const cssStr = css.map(([p, v]) => `${p}:${v}`).join(';');
-  return openTag(node, cssStr) + inner + childrenHtml + '</div>';
+  return openTag(node, cssStr, extraAttrs) + inner + childrenHtml + '</div>';
 }
 
 const KNOWN_RENDER_TYPES = new Set(['frame', 'group', 'rectangle', 'ellipse', 'polygon', 'path', 'text', 'note', 'icon', 'script', 'browser']);
@@ -274,17 +317,14 @@ export function computeCanvas(nodes: PenNode[], vars: VarResolver): { width: num
   let maxH = 0;
   for (const n of nodes) {
     if (!isRecord(n)) continue;
-    const x = numericSize(n['x'], vars) ?? 0;
-    const y = numericSize(n['y'], vars) ?? 0;
-    const w = numericSize(n['width'], vars) ?? sizingFallback(n['width']) ?? 0;
-    const h = numericSize(n['height'], vars) ?? sizingFallback(n['height']) ?? 0;
-    maxW = Math.max(maxW, x + w);
-    maxH = Math.max(maxH, y + h);
+    const box = nodeBox(n, vars);
+    maxW = Math.max(maxW, box.x + box.w);
+    maxH = Math.max(maxH, box.y + box.h);
   }
   return { width: Math.max(1, Math.ceil(maxW)), height: Math.max(1, Math.ceil(maxH)) };
 }
 
-/** 渲染整棵（已展开的）树：顶层节点在画布上绝对定位 */
+/** 渲染整棵（已展开的）树：顶层节点在画布上绝对定位，并带画布元数据 */
 export function renderTree(nodes: PenNode[], vars: VarResolver, warnings: Warnings): string {
-  return nodes.filter(isRecord).map((n) => renderNode(n, 'none', vars, warnings)).join('');
+  return nodes.filter(isRecord).map((n) => renderNode(n, 'none', vars, warnings, boardAttrs(n, vars))).join('');
 }

@@ -1,0 +1,44 @@
+{
+  "version": "2.21",
+  "fileToken": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  "children": [
+    {
+      "type": "frame",
+      "id": "home",
+      "name": "首页",
+      "x": 0,
+      "y": 0,
+      "width": 800,
+      "height": 600,
+      "layout": "vertical",
+      "padding": 24,
+      "gap": 12,
+      "fill": "#FFFFFF",
+      "children": [
+        { "type": "text", "id": "home-title", "name": "Title", "content": "首页", "fontSize": 28, "fill": "#0F172A" }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "detail",
+      "name": "详情",
+      "x": 900,
+      "y": 0,
+      "width": 400,
+      "height": 300,
+      "fill": "#F8FAFC",
+      "children": [
+        { "type": "rectangle", "id": "detail-card", "width": 200, "height": 80, "fill": "#E2E8F0" }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "ghost",
+      "x": 900,
+      "y": 400,
+      "width": 200,
+      "height": 200,
+      "fill": "#EEF2FF"
+    }
+  ]
+}
