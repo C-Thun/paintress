@@ -95,3 +95,45 @@ describe('ChangesStore 合并与过期', () => {
     expect(store.get('p', 'fresh.ptr')?.ids).toEqual(['b']);
   });
 });
+
+
+describe('MCP 写工具回传变更', () => {
+  it('batch 插入的新节点 id 也会被记录（不依赖调用方先知道 id）', async () => {
+    const { TOOLS } = await import('../src/mcp/tools.js');
+    const tool = TOOLS['paintress_batch'];
+    expect(tool).toBeDefined();
+
+    const before = (await (await fetch(`${baseUrl}/api/changes?project=chg&path=design.pen`)).json()) as {
+      ids: string[];
+    };
+    const beforeCount = before.ids.length;
+
+    const res = (await tool!.run({
+      path: join(projectDir, 'design.pen'),
+      ops: [{ op: 'insert', parent: 'root', node: { type: 'note', name: 'BatchNote', content: 'x' } }],
+    })) as { ok: boolean; result: { inserted: number } };
+
+    expect(res.ok).toBe(true);
+    expect(res.result.inserted).toBe(1);
+
+    await new Promise((r) => setTimeout(r, 400)); // 等非阻塞通知送达 daemon
+    const after = (await (await fetch(`${baseUrl}/api/changes?project=chg&path=design.pen`)).json()) as {
+      ids: string[];
+    };
+    expect(after.ids.length).toBeGreaterThan(beforeCount);
+  });
+
+  it('update 只记录被更新的那一个 id', async () => {
+    const { TOOLS } = await import('../src/mcp/tools.js');
+    await TOOLS['paintress_update']!.run({
+      path: join(projectDir, 'design.pen'),
+      id: 'title',
+      patch: { content: 'changed by test' },
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    const body = (await (await fetch(`${baseUrl}/api/changes?project=chg&path=design.pen`)).json()) as {
+      ids: string[];
+    };
+    expect(body.ids).toContain('title');
+  });
+});

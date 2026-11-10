@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadDoc, saveDoc } from '../doc/io.js';
+import { collectIds } from '../doc/id.js';
 import { validateDoc } from '../doc/validate.js';
 import { query as q, get as g, update as u, insert as i, remove as rm, move as mv, batch as bt, type BatchOp } from '../ops/index.js';
 import { renderDocument } from '../render/index.js';
@@ -226,10 +227,13 @@ export const TOOLS: Record<string, ToolDef> = {
           throw new Error(`ops[${idx}] 的 op 必须是 update|insert|delete|move`);
         });
         // batch 是克隆语义（返回新文档），但四类 op 只改 children 树；回填后走统一的写路径
+        const before = new Set(collectIds(doc.children));
         const out = bt(doc, ops);
         doc.children = out.children;
-        mark(ops.flatMap((op) => (op.op === 'insert' ? [] : [op.id])));
-        return { applied: ops.length };
+        // 显式操作的 id + 本次真正新增的节点 id（insert 由 ops 层生成，只能事后对比）
+        const insertedIds = collectIds(doc.children).filter((id) => !before.has(id));
+        mark([...ops.flatMap((op) => (op.op === 'insert' ? [] : [op.id])), ...insertedIds]);
+        return { applied: ops.length, inserted: insertedIds.length };
       }),
   },
 

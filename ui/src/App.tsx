@@ -156,8 +156,8 @@ export default function App() {
     if (!p || !f) return;
     try {
       const res = await fetchChanges(p, f);
+      // 过期由 daemon 的 TTL 判定（/api/changes 过期即返回空），前端不再叠加第二套阈值
       if (!res.ok || res.ids.length === 0) return;
-      if (Date.now() - res.at > 30_000) return; // 太旧的变更不再高亮
       const doc = frameDoc();
       if (!doc) return;
       for (const id of res.ids) {
