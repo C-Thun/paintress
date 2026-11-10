@@ -115,7 +115,7 @@ export default function App() {
     style.id = 'ptr-style';
     style.textContent = [
       '[data-ptr-selected]{outline:2px solid #2563eb !important;outline-offset:-2px;}',
-      '[data-ptr-hover]{outline:1px dashed #60a5fa !important;outline-offset:-2px;}',
+      '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed #60a5fa !important;outline-offset:-2px;}',
       'html{cursor:default;}',
     ].join('\n');
     doc.head.appendChild(style);
