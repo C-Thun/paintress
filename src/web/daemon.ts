@@ -242,17 +242,25 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               reply({ ok: true, cleared: marks.clear(req.project) });
               break;
             case 'changes': {
+              // req.path 应为绝对路径（调用方已 resolve）。若多个项目根互相包含，取最深根，避免记到外层项目
               const abs = resolve(req.path);
-              let recorded = 0;
-              for (const entry of registry.all()) {
-                const rel = relative(entry.rootReal, abs);
-                if (rel !== '' && !rel.startsWith('..') && !rel.startsWith('/')) {
-                  changes.record(entry.name, rel.split(/[\\/]/).join('/'), req.ids);
-                  recorded = req.ids.length;
-                  break;
-                }
+              const candidates = registry
+                .all()
+                .map((entry) => ({ entry, rel: relative(entry.rootReal, abs) }))
+                .filter(
+                  (c) =>
+                    c.rel !== '' &&
+                    c.rel !== '..' &&
+                    !c.rel.startsWith('..' + '/') &&
+                    !c.rel.startsWith('..' + '\\') &&
+                    !c.rel.startsWith('/'),
+                )
+                .sort((a, b) => b.entry.rootReal.length - a.entry.rootReal.length);
+              const hit = candidates[0];
+              if (hit) {
+                changes.record(hit.entry.name, hit.rel.split(/[\\/]/).join('/'), req.ids);
               }
-              reply({ ok: true, recorded });
+              reply({ ok: true, recorded: hit ? req.ids.length : 0 });
               break;
             }
             case 'shutdown':
@@ -577,6 +585,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     if (idleSince !== null && Date.now() - idleSince >= idleTimeoutMs) {
       void shutdown('idle');
     }
+    changes.prune(); // 顺带清理过期变更记录，避免长驻 daemon 下 Map 无限增长
   }, idleCheckMs);
   idleTimer.unref();
 

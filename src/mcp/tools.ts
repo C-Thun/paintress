@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { loadDoc, saveDoc } from '../doc/io.js';
 import { validateDoc } from '../doc/validate.js';
 import { query as q, get as g, update as u, insert as i, remove as rm, move as mv, batch as bt, type BatchOp } from '../ops/index.js';
@@ -55,10 +56,14 @@ function read<T>(path: string, fn: (ctx: ReturnType<typeof loadDoc>) => T): T {
   return fn(loaded);
 }
 
-/** 把「本次写操作动到的节点 id」告知 daemon，供前端做变更高亮（fire-and-forget） */
+/**
+ * 把「本次写操作动到的节点 id」告知 daemon，供前端做变更高亮。
+ * 先转绝对路径：daemon 的 cwd 未必与调用方一致，不能让 daemon 替我们 resolve 相对路径。
+ * 非阻塞发送（写路径性能语义不变）；socket 默认有 ref，进程不会在响应前提前退出。
+ */
 function notifyChanges(path: string, ids: string[]): void {
   if (ids.length === 0 || !isDaemonRunning()) return;
-  void sendRequest({ kind: 'changes', path, ids }, 2000).catch(() => {
+  void sendRequest({ kind: 'changes', path: resolve(path), ids }, 2000).catch(() => {
     /* 高亮是尽力而为，失败不影响写入结果 */
   });
 }
@@ -67,10 +72,10 @@ function notifyChanges(path: string, ids: string[]): void {
  * 写：load → 变更 → 校验（结构错误不落盘）→ 原子保存（保持原风味）。
  * fn 可通过 mark() 登记受影响的节点 id，写成功后统一通知 daemon。
  */
-function write(
+async function write(
   path: string,
   fn: (doc: ReturnType<typeof loadDoc>['doc'], mark: (ids: string[]) => void) => unknown,
-): { ok: true; result: unknown; warnings: unknown[] } {
+): Promise<{ ok: true; result: unknown; warnings: unknown[] }> {
   const loaded = loadDoc(path);
   const touched: string[] = [];
   const mark = (ids: string[]): void => {
