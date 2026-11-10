@@ -9,7 +9,8 @@
     "url": "git+https://github.com/aliciai-dev/paintress.git"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "pnpm": ">=12"
   },
   "main": "./dist/index.js",
   "exports": {
