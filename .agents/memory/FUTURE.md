@@ -36,7 +36,7 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 ## 阶段 5 — MCP 发布与安装规范化
 
 #### 是什么
-1. npm 发布 unscoped 包名 `paintress`（registry 实测未占用）
+1. npm 发布：可选 unscoped `paintress`（实测未占用）或 `@aliciai/paintress`（operator 已持有 `@aliciai` scope）
 2. 多客户端配置模板写进 README：Claude Desktop / Cursor / VS Code / Codex / pi 各一份
 3. 可选：`server.json` 发布到官方 MCP Registry 供发现
 4. 文档给两条安装路径：`npx paintress mcp`（便捷）与全局安装（稳定，不受启动时网络影响）
@@ -44,6 +44,8 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 **为什么等**：工具名与参数还会随阶段 4/6 变动。
 
 **触发条件**：阶段 4、6 合并后发布 `0.2.0`。
+
+**已就绪的前置**：GitHub org `aliciai-dev`（display name `Aliciai`）与 npm scope `@aliciai` 均已由 operator 持有，见 `ARCHITECTURE.md#D-005`。
 
 ## 阶段 6 — 画布交互（多画板 + 平移缩放）
 

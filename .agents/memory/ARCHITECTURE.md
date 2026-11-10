@@ -51,10 +51,16 @@
   - GitHub `aliciai` 被一个 **User**（非 org）占用：0 个公开仓库，创建 2021-01-14，最后活跃 2022-04-20，属闲置占名。
   - GitHub `alicia` 被占用且活跃（2009 年创建，2026-10 仍有活动），基本无望。
   - GitHub 可用变体：`aliciai-ai`、`aliciai-dev`、`aliciai-hq`、`aliciai-ai-labs` 均未被占用。
+  - **GitHub 官方政策明确拒绝回收**：`We do not accept requests to release, transfer, or reclaim usernames on the basis that they appear inactive or unused.`（2022 年政策收紧，此前可由 support 酌情处理）。唯一例外是商标侵权投诉。
+  - **GitHub Organization 的 handle 与 display name 是两套名字**：handle 决定 URL 且必须唯一，display name 可自由设置。因此「URL 用变体、页面显示原名」是官方支持的做法。
 
-- **决定**：CLI 命令名 `paintress`。npm 包名与 GitHub 组织归属**待定**。
-- **后果**：若采用 `@aliciai`，需先在 npm 创建 org，与 GitHub 占名无冲突；若必须在 GitHub 侧同名，只能走 GitHub Support 申请回收闲置账号（无成功率保证，且平台禁止买卖账号），或改用变体。
-- **日期**：2026-11-10
+- **决定**（2026-11-10 定稿）：
+  - CLI 命令名：`paintress`（全称）。
+  - GitHub 组织：handle **`aliciai-dev`**，display name 设为 `Aliciai`（operator 已注册该 org）。
+  - npm 命名空间：**`@aliciai`**（operator 已持有该 scope）。
+  - 两平台命名空间独立，handle 与 scope 不必同名。
+- **后果**：本仓库（`c-thun/paintress`）如迁入 `aliciai-dev`，用 GitHub 的 Transfer repository 保留历史与重定向；npm 侧可用 `@aliciai/paintress` 或继续使用 unscoped `paintress`（实测未占用），待发布时决定。
+- **日期**：2026-11-10（定稿 2026-11-10）
 
 ### D-006 — 自有格式 `.ptr`：双层冻结/演进
 
