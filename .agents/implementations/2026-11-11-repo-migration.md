@@ -41,4 +41,10 @@ pnpm test                                      → 9 文件 117 用例全绿
 
 - 顺带修复：`pnpm-workspace.yaml` 的构建白名单字段失效，见 `.agents/implementations/2026-11-11-pnpm-allow-builds.md`。
 - `package.json` 增加 `repository` 字段指向新地址（npm provenance 需要）。
-- 未做：旧目录 `rm`（待观察期结束）、GitHub 仓库 Description/Topics、npm 包名（`FUTURE.md#阶段 5` 待定）。
+- 遗留：npm 包名仍待定（`FUTURE.md#阶段 5`）。
+
+## 同日后继动作（2026-11-11 完成）
+
+- 已推送 3 个收尾 commit：`667383c`（allowBuilds 修复）、`cde3218`（迁移收尾 + `repository` 字段）、`d041a79`（`engines.pnpm >= 12`）。
+- GitHub 仓库元数据已设：description + 8 个 topics（`ai-agents` `cli` `design-files` `html` `mcp` `model-context-protocol` `solidjs` `typescript`）；默认分支仍为 `master`。
+- 旧目录已删除（删除前确认：工作区干净、`HEAD` = `98b56c3`、与新仓库 `.git` 非同 inode）。

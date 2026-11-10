@@ -54,7 +54,7 @@
 
 ### 仓库迁移到 aliciai-dev（2026-11-11）
 
-- GitHub Transfer 完成，旧地址 `C-Thun/paintress` 自动重定向；本地与远端均为 14 个 commit。
+- GitHub Transfer 完成，旧地址 `C-Thun/paintress` 自动重定向；迁移时本地与远端均为 14 个 commit。
 - 新 clone 重建通过：`pnpm install` / `build` / `test` 全绿（117 用例），基线不变。
 - 顺带修复 pnpm 11+ 构建白名单字段失效（`allowBuilds` 取代 `onlyBuiltDependencies`）。
 - 证据：`.agents/implementations/2026-11-11-repo-migration.md`、`2026-11-11-pnpm-allow-builds.md`。
