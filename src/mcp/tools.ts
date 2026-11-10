@@ -5,6 +5,7 @@ import { validateDoc } from '../doc/validate.js';
 import { query as q, get as g, update as u, insert as i, remove as rm, move as mv, batch as bt, type BatchOp } from '../ops/index.js';
 import { renderDocument } from '../render/index.js';
 import { screenshotPen, findBrowser } from '../shot/screenshot.js';
+import { isDaemonRunning, sendRequest } from '../web/client.js';
 
 /**
  * 工具层：MCP 与 CLI 共享同一套 handler（无状态）。
@@ -227,6 +228,28 @@ export const TOOLS: Record<string, ToolDef> = {
         ...(typeof a['scale'] === 'number' ? { scale: a['scale'] as number } : {}),
       });
       return { ok: true, out: res.out, canvas: res.canvas, browser: res.browser, warnings: res.warnings };
+    },
+  },
+
+  paintress_marks: {
+    description:
+      '读取/清空当前会话的节点标记：用户在浏览器里点击的节点会分配短号 #1 #2…，返回短号 → 节点 id 映射，便于对话中指代（如“#1 改成蓝色”）',
+    inputSchema: {
+      project: z.string().optional().describe('项目名；缺省返回全部项目的标记'),
+      action: z.enum(['list', 'clear']).optional().describe('默认 list'),
+    },
+    run: async (a) => {
+      if (!isDaemonRunning()) {
+        throw new Error('paintress web 未运行，无法读取标记；先运行 paintress web --daemon');
+      }
+      const project = optStr(a, 'project') ?? '';
+      const action = optStr(a, 'action') ?? 'list';
+      if (action === 'clear') {
+        const res = await sendRequest({ kind: 'clear-marks', project });
+        return res;
+      }
+      const res = await sendRequest({ kind: 'marks', project });
+      return res;
     },
   },
 };

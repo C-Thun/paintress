@@ -1,5 +1,9 @@
 /** 与 daemon 的 JSON API 契约（服务端见 src/web/daemon.ts） */
 
+import type { Mark, MarkInput } from '../../src/shared/api-types.js';
+
+export type { Mark, MarkInput };
+
 export interface ProjectInfo {
   name: string;
   root: string;
@@ -23,6 +27,11 @@ export interface FilesResponse {
   project: string;
   files: string[];
   depth: number;
+}
+
+export interface MarksResponse {
+  ok: boolean;
+  marks: Mark[];
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -50,4 +59,27 @@ export function renderUrl(project: string, file: string): string {
 /** SSE 地址：文件变更推送 */
 export function eventsUrl(project: string, file: string): string {
   return `/events?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file)}`;
+}
+
+export function fetchMarks(project: string): Promise<MarksResponse> {
+  return getJson<MarksResponse>(`/api/marks?project=${encodeURIComponent(project)}`);
+}
+
+export async function addMark(input: MarkInput): Promise<Mark> {
+  const res = await fetch('/api/marks', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { ok: boolean; mark: Mark; error?: string };
+  if (!body.ok) throw new Error(body.error ?? '添加标记失败');
+  return body.mark;
+}
+
+export async function clearMarks(project: string): Promise<number> {
+  const res = await fetch(`/api/marks?project=${encodeURIComponent(project)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { ok: boolean; cleared: number };
+  return body.cleared;
 }

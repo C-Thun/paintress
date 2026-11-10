@@ -1,3 +1,5 @@
+import type { Mark } from './marks.js';
+
 /** 控制面协议：CLI ↔ daemon（Unix socket，换行分隔 JSON） */
 
 export type ClientRequest =
@@ -7,6 +9,9 @@ export type ClientRequest =
   | { kind: 'unwatch'; project: string }
   | { kind: 'attach'; project: string }
   | { kind: 'detach'; project: string }
+  | { kind: 'marks'; project: string }
+  | { kind: 'mark'; project: string; nodeId: string; name?: string; type?: string; path?: string }
+  | { kind: 'clear-marks'; project: string }
   | { kind: 'shutdown' };
 
 export interface ProjectInfo {
@@ -28,6 +33,9 @@ export type ServerResponse =
   | { ok: true; watched: true; project: ProjectInfo }
   | { ok: true; unwatched: boolean }
   | { ok: true; pong: true; pid: number; uptimeMs: number; projects: number }
+  | { ok: true; marks: Mark[] }
+  | { ok: true; mark: Mark }
+  | { ok: true; cleared: number }
   | { ok: true; shutdown: true }
   | { ok: false; error: string };
 

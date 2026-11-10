@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Registry } from './registry.js';
+import { MarksStore } from './marks.js';
 import { LineDecoder, encodeLine, type ClientRequest, type ServerResponse } from './protocol.js';
 import { lockPath, pidPath, safeJoin, socketPath } from './paths.js';
 import { WatchManager } from './watcher.js';
@@ -152,6 +153,7 @@ function esc(s: string): string {
 export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandle> {
   const releaseLock = acquireLock();
   const registry = new Registry();
+  const marks = new MarksStore();
   const watchers = new WatchManager();
   const startedAt = Date.now();
   const idleTimeoutMs = opts.idleTimeoutMs ?? 60_000;
@@ -219,6 +221,24 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               cleanup();
               reply({ ok: true, detached: true, project: req.project });
               break;
+            case 'marks':
+              reply({ ok: true, marks: marks.list(req.project) });
+              break;
+            case 'mark':
+              reply({
+                ok: true,
+                mark: marks.add({
+                  project: req.project,
+                  nodeId: req.nodeId,
+                  name: req.name,
+                  type: req.type,
+                  path: req.path,
+                }),
+              });
+              break;
+            case 'clear-marks':
+              reply({ ok: true, cleared: marks.clear(req.project) });
+              break;
             case 'shutdown':
               reply({ ok: true, shutdown: true });
               void shutdown('shutdown-request');
@@ -248,6 +268,19 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     const sendJson = (code: number, payload: unknown): void =>
       send(code, JSON.stringify(payload), 'application/json; charset=utf-8');
 
+    /** 读请求体（仅用于小型 JSON POST） */
+    const readBody = async (limit = 64 * 1024): Promise<string> => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        const buf = chunk as Buffer;
+        size += buf.length;
+        if (size > limit) throw new Error(`请求体过大（>${limit} 字节）`);
+        chunks.push(buf);
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    };
+
     try {
       // ---------- JSON API ----------
       if (segments[0] === 'api') {
@@ -272,8 +305,51 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           sendJson(200, { ok: true, project: entry.name, depth: entry.depth, files: registry.listDesigns(entry) });
           return;
         }
-        sendJson(404, { ok: false, error: `未知 API：${url.pathname}` });
-        return;
+        if (segments[1] === 'marks') {
+          const qProject = url.searchParams.get('project') ?? '';
+          if (req.method === 'GET') {
+            sendJson(200, { ok: true, marks: marks.list(qProject) });
+            return;
+          }
+          if (req.method === 'POST') {
+            const raw = await readBody();
+            let body: Record<string, unknown>;
+            try {
+              body = JSON.parse(raw) as Record<string, unknown>;
+            } catch {
+              sendJson(400, { ok: false, error: '请求体不是合法 JSON' });
+              return;
+            }
+            const projectIn = typeof body['project'] === 'string' ? body['project'] : qProject;
+            const nodeId = body['nodeId'];
+            if (projectIn === '' || typeof nodeId !== 'string' || nodeId === '') {
+              sendJson(400, { ok: false, error: '缺少 project 或 nodeId' });
+              return;
+            }
+            if (!registry.get(projectIn)) {
+              sendJson(404, { ok: false, error: `未注册的项目：${projectIn}` });
+              return;
+            }
+            const mark = marks.add({
+              project: projectIn,
+              nodeId,
+              ...(typeof body['name'] === 'string' ? { name: body['name'] } : {}),
+              ...(typeof body['type'] === 'string' ? { type: body['type'] } : {}),
+              ...(typeof body['path'] === 'string' ? { path: body['path'] } : {}),
+            });
+            sendJson(200, { ok: true, mark });
+            return;
+          }
+          if (req.method === 'DELETE') {
+            const nodeId = url.searchParams.get('nodeId');
+            const cleared = nodeId ? (marks.remove(qProject, nodeId) ? 1 : 0) : marks.clear(qProject);
+            sendJson(200, { ok: true, cleared });
+            return;
+          }
+          sendJson(405, { ok: false, error: `不支持的方法：${req.method ?? '?'}` });
+          return;
+        }
+        sendJson(404, { ok: false, error: `未知 API：${url.pathname}` });        return;
       }
 
       // ---------- SSE 热重载 ----------

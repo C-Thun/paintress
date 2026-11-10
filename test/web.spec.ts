@@ -204,8 +204,9 @@ describe('idle 自动退出', () => {
     await new Promise((r) => setTimeout(r, 700));
     // 退出后 socket 应消失
     expect(isDaemonRunning()).toBe(false);
-    // 重新拉起供 afterAll 收尾
+    // 重新拉起供后续用例使用（端口变化，必须同步 baseUrl）
     daemon = await startDaemon({ port: 0, quiet: true });
+    baseUrl = `http://127.0.0.1:${daemon.port}`;
   }, 15_000);
 });
 
@@ -256,5 +257,74 @@ describe('Registry 内部行为', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+
+describe('会话标记（marks API）', () => {
+  beforeAll(async () => {
+    // idle 用例可能重启过 daemon，这里确保项目已注册
+    await sendRequest({ kind: 'watch', project: PROJECT, dir: projectDir });
+  });
+
+  interface MarkBody {
+    ok: boolean;
+    mark: { shortId: number; nodeId: string; name?: string; path: string };
+  }
+
+  const post = async (body: Record<string, unknown>): Promise<Response> =>
+    fetch(`${baseUrl}/api/marks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('POST 分配短号', async () => {
+    const res = await post({ project: PROJECT, nodeId: 'title', name: 'Title', type: 'text', path: 'App / Title' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as MarkBody;
+    expect(body.ok).toBe(true);
+    expect(body.mark.nodeId).toBe('title');
+    expect(body.mark.shortId).toBeGreaterThan(0);
+  });
+
+  it('同一 nodeId 复用短号，不重复分配', async () => {
+    const a = (await (await post({ project: PROJECT, nodeId: 'card', name: 'Card' })).json()) as MarkBody;
+    const b = (await (await post({ project: PROJECT, nodeId: 'card', name: 'Card' })).json()) as MarkBody;
+    expect(b.mark.shortId).toBe(a.mark.shortId);
+  });
+
+  it('不同 nodeId 短号递增', async () => {
+    const a = (await (await post({ project: PROJECT, nodeId: 'star' })).json()) as MarkBody;
+    const b = (await (await post({ project: PROJECT, nodeId: 'memo' })).json()) as MarkBody;
+    expect(b.mark.shortId).toBeGreaterThan(a.mark.shortId);
+  });
+
+  it('GET 返回按短号升序的列表', async () => {
+    const res = await fetch(`${baseUrl}/api/marks?project=${PROJECT}`);
+    const body = (await res.json()) as { ok: boolean; marks: { shortId: number; nodeId: string }[] };
+    expect(body.ok).toBe(true);
+    const ids = body.marks.map((m) => m.shortId);
+    expect([...ids].sort((x, y) => x - y)).toEqual(ids);
+    expect(body.marks.map((m) => m.nodeId)).toContain('title');
+  });
+
+  it('未注册项目 → 404', async () => {
+    const res = await post({ project: 'no-such', nodeId: 'x' });
+    expect(res.status).toBe(404);
+  });
+
+  it('缺 nodeId → 400', async () => {
+    const res = await post({ project: PROJECT });
+    expect(res.status).toBe(400);
+  });
+
+  it('DELETE 清空该项目的标记', async () => {
+    const res = await fetch(`${baseUrl}/api/marks?project=${PROJECT}`, { method: 'DELETE' });
+    const body = (await res.json()) as { ok: boolean; cleared: number };
+    expect(body.ok).toBe(true);
+    expect(body.cleared).toBeGreaterThan(0);
+    const after = (await (await fetch(`${baseUrl}/api/marks?project=${PROJECT}`)).json()) as { marks: unknown[] };
+    expect(after.marks).toEqual([]);
   });
 });

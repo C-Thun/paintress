@@ -241,3 +241,80 @@ body {
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+/* ---------- 标记与面包屑 ---------- */
+.section.marks {
+  border-top: 1px solid var(--border);
+  flex: 0 1 auto;
+  max-height: 34vh;
+}
+
+.mark-no {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 4px;
+  margin-right: 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.item.active .mark-no {
+  background: #fff;
+}
+
+.ghost.tiny {
+  padding: 1px 6px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.crumbs code {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb {
+  background: none;
+  border: 0;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.crumb.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sep {
+  color: var(--border);
+  font-size: 11px;
+}
