@@ -25,13 +25,16 @@
     "paintress": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "ui/dist"
   ],
   "scripts": {
     "build": "tsdown && pnpm --dir ui build",
     "check": "tsc --noEmit",
     "test": "vitest run",
     "build:server": "tsdown",
+    "verify:pkg": "node scripts/verify-package.mjs",
+    "prepack": "pnpm build && pnpm verify:pkg",
     "build:ui": "pnpm --dir ui build",
     "dev:ui": "pnpm --dir ui dev"
   },
