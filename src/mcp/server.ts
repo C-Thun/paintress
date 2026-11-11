@@ -1,10 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { VERSION } from '../shared/version.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { TOOLS } from './tools.js';
 import { autoRegister, type AutoRegisterResult } from '../web/autoregister.js';
 
 const SERVER_NAME = 'paintress';
-const SERVER_VERSION = '0.1.0';
+const SERVER_VERSION = VERSION;
 
 /** 构建 MCP server：把共享工具注册到 stdio 协议上 */
 export function createMcpServer(): McpServer {

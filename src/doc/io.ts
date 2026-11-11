@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, copyFileSync, statSync, mkdirSync } from 'node:fs';
+import { VERSION } from '../shared/version.js';
 import { basename, dirname, join } from 'node:path';
 import { DocumentSchema, X_PAINTRESS_KEY, PTR_SPEC_VERSION, type PenDocument } from '../schema/index.js';
 import { validateDoc, type ValidationResult } from './validate.js';
@@ -14,7 +15,7 @@ export interface LoadedDoc {
   validation: ValidationResult;
 }
 
-const GENERATOR = 'paintress/0.1.0';
+const GENERATOR = `paintress/${VERSION}`;
 
 export class FileChangedError extends Error {
   constructor(public readonly path: string) {

@@ -1,4 +1,5 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { VERSION } from '../shared/version.js';
 import { createServer as createNetServer, type Server as NetServer, type Socket } from 'node:net';
 import {
   closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync,
@@ -14,7 +15,7 @@ import { lockPath, pidPath, safeJoin, socketPath } from './paths.js';
 import { WatchManager } from './watcher.js';
 import { loadDoc, renderDocument } from '../index.js';
 
-const VERSION = '0.1.0';
+
 const DEFAULT_PORT = 3316;
 
 const MIME: Record<string, string> = {

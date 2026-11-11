@@ -94,3 +94,10 @@
 - 双语 README（英文主文件 + 中文互链），文末附「给 AI 的安装手册」（先检测后安装、多 agent 幂等注册）。
 - 随包 skill `skills/paintress/SKILL.md`；CI 与 OIDC 发布工作流入仓。
 - 证据：`.agents/implementations/2026-11-11-brand-docs-skill.md`。
+
+### 发布 0.2.0 / 0.2.1（2026-11-12）
+
+- `0.2.0`：install/doctor/mcp-config、随包 skill、双语 README、品牌图标与米白底界面、CI/发布工作流。
+- `0.2.1`：版本号去硬编码（此前 MCP serverInfo、ping、`.ptr` generator 都写死 0.1.0）。
+- 安装链路实测通过：全局安装 → `doctor` 解析出裸命令 → `install pi` 写入配置 → MCP 握手报 0.2.1。
+- 证据：`.agents/implementations/2026-11-12-version-and-release-0.2.md`、`2026-11-12-icon-and-cream-ui.md`。
