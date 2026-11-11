@@ -44,5 +44,14 @@ jobs:
       - name: Verify package contents
         run: pnpm verify:pkg
 
+      - name: Check tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $GITHUB_REF_NAME 与 package.json 版本 $pkg 不一致" >&2
+            exit 1
+          fi
+
       - name: Publish with provenance
         run: npm publish --provenance --access public
