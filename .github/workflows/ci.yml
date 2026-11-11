@@ -36,8 +36,9 @@ jobs:
       - name: Typecheck
         run: pnpm check
 
-      - name: Test
-        run: pnpm test
-
+      # 先构建：web.spec 的 SPA 回退用例需要 ui/dist 存在，否则 daemon 返回 404
       - name: Build
         run: pnpm build
+
+      - name: Test
+        run: pnpm test
