@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Chromium for screenshot tests
+        run: pnpm exec playwright-core install --with-deps chromium
+
       - name: Test
         run: pnpm test
 
