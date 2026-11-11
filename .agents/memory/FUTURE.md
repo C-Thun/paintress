@@ -91,6 +91,50 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 当前用 Vitest；项目只用到 `describe`/`it`/`expect`，`node:test` 完全够用。迁移约半天。
 **触发条件**：operator 认为依赖体积/供应链复杂度是问题时做；否则保持。
 
+### 评审遗留（2026-11-12，来源 `.agents/implementations/2026-11-12-code-review-fixes.md`）
+
+#### 查看器交互缺浏览器端回归
+
+**是什么**：拖拽平移、修饰键、快捷键、视口持久化、层级切换目前只有纯数学单测 + 一次性临时脚本验证，没有入库的端到端用例。
+
+**为什么等**：需要复用 daemon 启动与 fixture 项目（`test/web.spec.ts` 已有骨架），约半天；但这几处交互每改一次都要手测一轮，成本会反复支付。
+
+**风险**：属于当前最大的测试缺口——交互回归不会被执行 CI 拦住。
+
+**触发条件**：下次改动 `ui/src/frame-viewport.ts` 或 `App.tsx` 的交互逻辑时一并补；或出现一次漏到发布版本的交互回归。
+
+#### VS Code `mcp.json` 的 JSONC 支持
+
+**是什么**：`install` 用严格 JSON 解析配置，带注释的 `mcp.json` 会判为 `invalid` 并跳过（安全，但不生效）。
+
+**为什么等**：正确做法不是“解析后重新序列化”（会丢掉用户注释），而是用 jsonc-parser 做定点插入；换解析层属于行为变更，需单独验证。
+
+**触发条件**：有用户因 VS Code 已有注释配置而接入失败；或新增第 6 家客户端时统一升级写入层。
+
+#### Windows 的 `.cmd` 垫片判定偏松
+
+**是什么**：`resolveLaunchCommand` 在 win32 上只要 PATH 存在 `paintress.cmd` 就当作自己，不校验它指向哪个包。
+
+**为什么等**：Windows 未实测，仓库 CI 只有 Linux；收紧需要解析 npm 的 `.cmd` 垫片或比对 `where` 结果。
+
+**触发条件**：宣布支持 Windows；或出现“写进配置的裸命令指向了另一个 paintress”的报告。
+
+#### Codex 已有条目只判存在、不修陈旧路径
+
+**是什么**：已有 `[mcp_servers.paintress]` 一律 `noop`，即使里面的 `command` 已经过期（例如从 npx 换成全局安装）。
+
+**为什么等**：改 TOML 需要引入解析器（如 smol-toml）并重写 section，风险高于 JSON 合并；当前策略是“只追加不改写”。
+
+**触发条件**：用户报告 Codex 走旧路径；或 install 需要支持“更新已有条目”的语义。
+
+#### 变更通知测试依赖固定等待
+
+**是什么**：`test/changes.spec.ts` 用 400ms 固定等待等 daemon 非阻塞通知，偶发时序失败（2026-11-12 全量跑出现过一次，单测与重跑均通过）。
+
+**为什么等**：与本轮改动无关的既有问题；改法是换成轮询断言，成本很低但需单独验证不引入 flake。
+
+**触发条件**：再出现一次 flake，或 CI 因它变红。
+
 ## 已否决
 
 - **检测 agent 存活用 PID 轮询**：PID 会被内核复用，必然误判。已改为连接存活（socket 断开即事件）。
