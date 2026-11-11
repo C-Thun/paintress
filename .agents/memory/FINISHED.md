@@ -80,3 +80,9 @@
 - 新增 `paintress install` / `doctor` / `mcp-config`：五家客户端（Claude Desktop / Cursor / VS Code / Codex / pi）幂等写入，改动前备份，保留他人条目。
 - dts 复测仍失败（`NodeSchema` TS7056），0.1.0 不发类型产物。
 - 证据：`.agents/implementations/2026-11-11-stage5-publish-prep.md`。
+
+### npm 首发（2026-11-11）
+
+- `paintress@0.1.0` 与 `0.1.1` 已发布，**unscoped 根包名到手**（相似度过滤未拦截），`latest = 0.1.1`。
+- 从 registry 安装验证：bin 可用、`ui/dist` 随包、MCP 握手正常、`install`/`doctor`/`mcp-config` 可用。
+- 记录：`.agents/implementations/2026-11-11-publish-npm.md`（含 token 范围排障与 `0.0.0-stage` 占位说明）。

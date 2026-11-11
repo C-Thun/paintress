@@ -20,8 +20,6 @@ npm install -g paintress     # 全局安装，命令名为 paintress
 npx paintress --help         # 或临时运行
 ```
 
-> 包名待最终确定：若发布在 `@aliciai` 作用域下，把下文命令里的 `paintress` 换成 `@aliciai/paintress`，CLI 命令名不变。
-
 ## 接入 MCP 客户端
 
 服务端就是一条 stdio 命令：`paintress mcp`。各客户端的差异只在配置文件位置与顶层字段名。

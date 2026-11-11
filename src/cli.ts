@@ -120,7 +120,7 @@ async function call(tool: string, args: Record<string, unknown>): Promise<ToolOu
 export async function main(argv: string[]): Promise<number> {
   const parsed = parseArgv(argv);
   if (!parsed) {
-    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|info|query|get|update|insert|delete|move|batch|render|shot|validate> ...');
+    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|info|query|get|update|insert|delete|move|batch|render|shot|validate|install|doctor|mcp-config> ...');
     return 2;
   }
   const { cmd, positionals, flags } = parsed;

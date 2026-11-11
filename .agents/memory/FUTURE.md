@@ -51,9 +51,10 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 2. ~~`files` 缺 `ui/dist`~~ → 已加入；`prepack` 额外跑 `verify:pkg` 自检。
 3. ~~bin 经符号链接执行时静默退出~~ → 入口判定改 `realpath` 比对。
 
-**仍待决策/未完成**：
-- 包名：优先试 unscoped `paintress`（相似度过滤可能 403），失败回退 `@aliciai/paintress`。
-- `dts` 仍失败（`NodeSchema` TS7056），0.1.0 不发类型产物。
+**进度**（2026-11-11）：
+- 包名已定：**unscoped `paintress`**，0.1.0 首发、0.1.1 修帮助行，`latest = 0.1.1`（记录 `2026-11-11-publish-npm.md`）。
+- 发布用 bypass-2FA granular token（All packages）；**2027-01 起该能力失效**，必须迁 trusted publishing（OIDC）或 staged + 2FA 批准。
+- `dts` 仍失败（`NodeSchema` TS7056），0.1.x 不发类型产物。
 - 可选：`server.json` 发布到 MCP Registry；pi 的 `~/` 路径写法需真会话验证。
 
 ## 阶段 6 — 画布交互
