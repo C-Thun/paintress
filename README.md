@@ -1,6 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" width="120" alt="paintress">
-  <h1>paintress</h1>
+  <img src="assets/icon-512-wordmark.webp" width="200" alt="paintress">
   <p>Design-document operation layer for AI agents</p>
   <p><a href="README.zh-CN.md">中文</a></p>
 </div>

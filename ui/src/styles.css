@@ -1,9 +1,9 @@
 :root {
-  --bg: #f8fafc;
-  --panel: #ffffff;
-  --border: #e2e8f0;
-  --text: #1e293b;
-  --muted: #64748b;
+  --bg: #f6f1ea;                          /* 米白：取自 logo 底 #FAF4EF，略压暗以托住面板 */
+  --panel: #fffcf8;
+  --border: #e6ded2;
+  --text: #1f2a37;
+  --muted: #7a7166;
   --accent: #205080;                      /* logo 蓝（定稿） */
   --accent-soft: rgba(32, 80, 128, 0.08);
   --gold: #908030;                        /* logo 金（定稿） */
@@ -199,6 +199,7 @@ body {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--bg);
 }
 
 .toolbar {
@@ -221,9 +222,13 @@ body {
 
 .preview {
   flex: 1;
-  width: 100%;
-  border: 0;
+  min-height: 0;
+  margin: 12px;
+  width: calc(100% - 24px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: #fff;
+  box-shadow: 0 1px 2px rgba(31, 42, 55, 0.05), 0 8px 24px rgba(31, 42, 55, 0.05);
 }
 
 .placeholder {
