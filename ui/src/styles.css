@@ -4,8 +4,10 @@
   --border: #e2e8f0;
   --text: #1e293b;
   --muted: #64748b;
-  --accent: #2563eb;
-  --accent-soft: #eff6ff;
+  --accent: #254e8a;        /* logo 主蓝 */
+  --accent-soft: #e9eef7;
+  --gold: #97885f;          /* 1964 金 */
+  --gold-bright: #c9a227;
   --radius: 8px;
 }
 
@@ -45,7 +47,7 @@ body {
 
 .sidebar-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--border);
@@ -317,6 +319,13 @@ body {
 .sep {
   color: var(--border);
   font-size: 11px;
+}
+
+/* ---------- 品牌 ---------- */
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
 }
 
 /* ---------- 画布工具条与画板条 ---------- */

@@ -157,10 +157,10 @@ export default function App() {
     const style = doc.createElement('style');
     style.id = 'ptr-style';
     style.textContent = [
-      '[data-ptr-selected]{outline:2px solid #2563eb !important;outline-offset:-2px;}',
-      '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed #60a5fa !important;outline-offset:-2px;}',
-      '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #f59e0b !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
-      '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #f59e0b}50%{box-shadow:inset 0 0 0 2px #fde68a}}',
+      '[data-ptr-selected]{outline:2px solid #97885f !important;outline-offset:-2px;}',
+      '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed #c9a227 !important;outline-offset:-2px;}',
+      '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #c9a227 !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
+      '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #c9a227}50%{box-shadow:inset 0 0 0 2px #e6d9a8}}',
       'html{cursor:default;}',
       'html,body{overflow:hidden;}',
     ].join('\n');
@@ -437,6 +437,7 @@ export default function App() {
     <div class="app">
       <aside class="sidebar">
         <header class="sidebar-head">
+          <img class="brand-mark" src="/logo.svg" alt="" />
           <h1>paintress</h1>
           <Show when={daemonInfo().version}>
             <span class="badge">v{daemonInfo().version}</span>

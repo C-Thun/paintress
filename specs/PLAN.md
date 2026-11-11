@@ -14,7 +14,7 @@
 | 2 | 渲染器：`.pen` → HTML/CSS，+ headless 截图出 PNG | 已完成（2026-11-10，视觉验收通过，记录见 `.agents/implementations/2026-11-10-stage2-render.md`） |
 | 3 | 查看器：本地 web server + 文件监听热重载 | 已完成（2026-11-10，统一进程方案 + 三处修正，记录见 `.agents/implementations/2026-11-10-stage3-web.md`） |
 | 4 | 标记：点击选中 + 短号 + 变更高亮 | 已完成（2026-11-10 上线主体；2026-11-11 补齐嵌套层级切换）：点击选中、`#N` 短号、`paintress_marks`、变更高亮、Alt+点击选父级、Alt+滚轮切层级。记录：`.agents/implementations/2026-11-10-stage4-marks.md`、`.agents/implementations/2026-11-11-stage4-nesting.md` |
-| 5 | 发布与安装规范化：npm 包、多客户端配置、Registry | **基本完成**（2026-11-11）：已发布 `paintress@0.1.1`（unscoped 根包名），多客户端 `install`/`doctor`/`mcp-config` 已实测；剩 trusted publishing（OIDC，2027-01 前必须迁）、MCP Registry 可选、dts 债。记录：`.agents/implementations/2026-11-11-stage5-publish-prep.md`、`2026-11-11-publish-npm.md` |
+| 5 | 发布与安装规范化：npm 包、多客户端配置、Registry | **基本完成**（2026-11-11）：已发布 `paintress@0.1.1`（unscoped 根包名），多客户端 `install`/`doctor`/`mcp-config` 已实测；CI 与发布工作流已入仓（OIDC + provenance，action 钉 SHA）；剩 npm 侧配置 trusted publisher、MCP Registry 可选、dts 债。记录：`.agents/implementations/2026-11-11-stage5-publish-prep.md`、`2026-11-11-publish-npm.md` |
 | 6 | 画布交互：多画板导航 + 平移缩放 | 已完成（2026-11-11，五步全部落地，记录见 `.agents/implementations/2026-11-11-stage6-canvas.md`）；方案与边界见 `specs/canvas-interaction.md` |
 
 阶段 2 是地基，架构决定成败，其余三阶段都建立在它之上（理由见 `.agents/memory/ARCHITECTURE.md#D-002`）。

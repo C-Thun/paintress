@@ -86,3 +86,11 @@
 - `paintress@0.1.0` 与 `0.1.1` 已发布，**unscoped 根包名到手**（相似度过滤未拦截），`latest = 0.1.1`。
 - 从 registry 安装验证：bin 可用、`ui/dist` 随包、MCP 握手正常、`install`/`doctor`/`mcp-config` 可用。
 - 记录：`.agents/implementations/2026-11-11-publish-npm.md`（含 token 范围排障与 `0.0.0-stage` 占位说明）。
+
+### 品牌与文档（2026-11-11）
+
+- logo 矢量化：`assets/logo.svg`（两色 2 个 path，562×884，11.8 KB），与原图轮廓 IoU 92.8%。
+- 查看器应用品牌两色（主蓝 `#254E8A`、1964 金 `#97885F`），侧栏嵌入 logo。
+- 双语 README（英文主文件 + 中文互链），文末附「给 AI 的安装手册」（先检测后安装、多 agent 幂等注册）。
+- 随包 skill `skills/paintress/SKILL.md`；CI 与 OIDC 发布工作流入仓。
+- 证据：`.agents/implementations/2026-11-11-brand-docs-skill.md`。

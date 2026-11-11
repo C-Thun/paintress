@@ -1,125 +1,204 @@
-# Paintress
+<div align="center">
+  <img src="assets/logo.svg" width="120" alt="paintress">
+  <h1>paintress</h1>
+  <p>Design-document operation layer for AI agents</p>
+  <p><a href="README.zh-CN.md">中文</a></p>
+</div>
 
-面向 AI agent 的设计稿操作层。用 MCP 工具读写结构化的 `.pen` 设计稿，渲染为 HTML，在浏览器里查看与标记。
+**To install: paste this repository's URL into your agent and ask it to install paintress.** Agents that need a precise procedure will find one at the [end of this file](#installation-guide-for-ai-agents).
 
-早期开发中，尚未发布。
+## What it is
 
-## 能力
+paintress reads and writes structured design documents — JSON files with a documented schema (`.pen`, and its own `.ptr` for anything it writes). It renders them to HTML, serves a local viewer, and exposes the same operations as MCP tools and as a CLI.
 
-- **读写**：查询、修改、插入、删除设计稿节点，保持文件格式不变
-- **渲染**：设计稿 → HTML/CSS，由浏览器排版，输出可直接使用的页面
-- **查看**：本地服务，文件变更自动刷新
-- **标记**：点击节点生成短号，便于在对话中指代
+It is not an editor. There is no canvas, no drag-and-drop, no property panel. A human looks at the design in a browser and clicks nodes to point at them; the agent does the reading and writing.
 
-## 安装
+| Part | Purpose |
+| --- | --- |
+| MCP tools | query, read, update, insert, delete, move, batch, validate, render, screenshot |
+| CLI | the same operations plus the viewer process, for use without an agent |
+| Viewer | local web server: renders a document, highlights changes, hands back clicked nodes as `#1`, `#2`, … |
+| Screenshot | PNG of a whole canvas, for agents that can look at images |
 
-要求 Node.js ≥ 22。
+## Requirements
 
-```bash
-npm install -g paintress     # 全局安装，命令名为 paintress
-npx paintress --help         # 或临时运行
-```
+Node.js 22 or newer.
 
-## 接入 MCP 客户端
-
-服务端就是一条 stdio 命令：`paintress mcp`。各客户端的差异只在配置文件位置与顶层字段名。
-
-### 自动写入（推荐）
-
-```bash
-paintress doctor                 # 先看各客户端是否已安装、配置是否已就位
-paintress install --dry-run      # 预览将要写入的内容，不动磁盘
-paintress install                # 写入所有已检测到的客户端
-paintress install pi cursor      # 只写指定客户端
-```
-
-写入规则：只合并 `mcpServers.paintress`（VS Code 为 `servers.paintress`）这一条，其他键与他人条目原样保留；改动前会生成 `*.bak-<时间戳>` 备份；已有的 Codex TOML 只追加不重写。
-
-单个客户端也可以只要片段：
+## Install
 
 ```bash
-paintress mcp-config pi          # 输出 JSON 片段
-paintress mcp-config codex       # 输出 TOML 片段
+npm install -g paintress
 ```
 
-下面是手工配置时的完整写法。
-
-### Claude Desktop
-
-`claude_desktop_config.json`：
-
-```json
-{
-  "mcpServers": {
-    "paintress": { "command": "npx", "args": ["-y", "paintress", "mcp"] }
-  }
-}
-```
-
-### Cursor
-
-`~/.cursor/mcp.json`（全局）或 `.cursor/mcp.json`（项目，可提交）：
-
-```json
-{
-  "mcpServers": {
-    "paintress": { "command": "npx", "args": ["-y", "paintress", "mcp"] }
-  }
-}
-```
-
-### VS Code
-
-`.vscode/mcp.json`（顶层键是 `servers`，不是 `mcpServers`）：
-
-```json
-{
-  "servers": {
-    "paintress": { "type": "stdio", "command": "npx", "args": ["-y", "paintress", "mcp"] }
-  }
-}
-```
-
-### Codex
-
-`~/.codex/config.toml`：
-
-```toml
-[mcp_servers.paintress]
-command = "npx"
-args = ["-y", "paintress", "mcp"]
-```
-
-### pi
-
-`~/.pi/agent/mcp.json`（用户级）或 `.pi/mcp.json`（项目级）：
-
-```json
-{
-  "mcpServers": {
-    "paintress": { "command": "paintress", "args": ["mcp"] }
-  }
-}
-```
-
-若 paintress 装在 `~/.pi/agent/npm` 里（该目录的 `.bin` 不在 PATH），`command` 写成 `~/.pi/agent/npm/node_modules/.bin/paintress`。
-
-## 查看设计稿
+Then register it with the agent(s) you use:
 
 ```bash
-paintress web --idle 3600000   # 起本地查看器（默认 http://localhost:3316）
-paintress watch demo ./demo    # 注册一个项目目录
+paintress doctor            # what is installed and which clients already have the entry
+paintress install           # write the MCP entry into every detected client config
+paintress install pi cursor # or only the ones you name
 ```
 
-浏览器打开 `http://localhost:3316/?project=demo&file=hello.ptr`：滚轮以光标为锚点缩放，空格 / 中键 / 空白处拖拽平移，`Ctrl/Cmd+0` 回 100%，`Shift+1` 适应窗口；多画板文件会显示画板条。
+`install` merges a single entry, preserves everything else in the file, and writes a `*.bak-<timestamp>` backup before touching it. Running it twice changes nothing.
 
-## 原则
+## CLI
 
-- 只处理明文 JSON 设计稿，不依赖任何商业设计工具的 SDK、账号或托管服务
-- 渲染输出标准 HTML，不使用私有格式
-- 不含编辑器 UI：支持查看与标记，不支持拖拽改布局
-- 写入前备份、原子替换，避免数据损坏
+```text
+paintress mcp <file>?                                   start the stdio MCP server
+paintress doc_info <file>                               document summary
+paintress query <file> [--type t] [--name n|--regex]    find nodes
+paintress get <file> <id> [--depth n]                   read a node subtree
+paintress update <file> <id> '<patch-json>'             shallow-merge attributes
+paintress insert <file> <parent> '<node-json>'          insert a child node
+paintress delete <file> <id>                            remove a node
+paintress move <file> <id> <parent> [--index n]         reparent a node
+paintress batch <file> '<ops-json>'                     several operations at once
+paintress validate <file>                               check against the format spec
+paintress render <file> <out.html>                      write the canvas as HTML
+paintress shot <file> <out.png> [--scale n]             render to PNG
 
-## 许可
+paintress web [--port n] [--idle ms] [--daemon]         start the viewer
+paintress ping | status | stop                          viewer control
+paintress watch <name> <dir> | unwatch <name>           register a directory to browse
+paintress attach <name>                                 keep the viewer alive while an agent works
+
+paintress install [client...] [--dry-run]               write MCP config entries
+paintress doctor                                        show client configuration state
+paintress mcp-config <client>                           print the config snippet for one client
+```
+
+## Viewer
+
+```bash
+paintress web --daemon --idle 3600000
+paintress watch demo ./demo
+# open http://localhost:3316/?project=demo&file=hello.ptr
+```
+
+Canvas navigation: wheel zooms at the pointer, space / middle button / empty area drags to pan, `Ctrl/Cmd+0` returns to 100%, `Shift+1` fits the window. Files with more than one board get a board strip. Edits made through the CLI or MCP are highlighted in the viewer, and clicks assign short ids that the agent can read back with `paintress_marks`.
+
+## MCP clients
+
+`paintress install` writes these; the same entries can be added by hand.
+
+| Client | Config file | Top-level key |
+| --- | --- | --- |
+| Claude Desktop | `~/.config/Claude/claude_desktop_config.json` | `mcpServers` |
+| Cursor | `~/.cursor/mcp.json` | `mcpServers` |
+| VS Code | `~/.config/Code/User/mcp.json` | `servers` (with `"type": "stdio"`) |
+| Codex | `~/.codex/config.toml` | `[mcp_servers.paintress]` |
+| pi | `~/.pi/agent/mcp.json` | `mcpServers` |
+
+```bash
+paintress mcp-config cursor   # print the exact snippet instead of editing files
+```
+
+## Skill
+
+`skills/paintress/SKILL.md` is a short instruction file for agents: when to reach for these tools, how `#1` markers map to node ids, and which tool to use for what. Copy it into your agent's skill directory if it supports one.
+
+## Documentation
+
+- `specs/PLAN.md` — roadmap and open questions
+- `format/spec.yaml` — the document format spec (the `.pen` profile is frozen; `.ptr` evolves)
+- `.agents/memory/ARCHITECTURE.md` — design decisions and their rationale
+- `.agents/implementations/` — per-change records with measurements
+
+## License
 
 MIT
+
+---
+
+## Installation guide for AI agents
+
+You are an agent asked to install paintress on this machine. Work through the steps in order and report what you found, what you reused, and what you changed.
+
+**Detection comes first.** Several agents can share one machine. A previous agent may already have installed paintress globally and registered it for itself. Installing a second copy is a bug, not thoroughness.
+
+### 0. Detect
+
+| Check | Command | What it tells you |
+| --- | --- | --- |
+| Binary on PATH | `command -v paintress` | a usable install already exists |
+| Global npm package | `npm ls -g --depth=0 paintress` | installed globally via npm |
+| Project-local | `npm ls --depth=0 paintress` | installed inside the current project |
+| Client configs | `paintress doctor` | which agents already have an entry, and its state |
+
+Rules:
+
+- **Any hit means reuse.** Do not install again; go to step 2.
+- Report the resolved path and version (`paintress ping` prints the daemon version when the viewer runs; `npm ls -g --depth=0 paintress` prints the package version).
+- Only when every check is empty do you install (step 1).
+
+### 1. Install (only if step 0 found nothing)
+
+```bash
+npm install -g paintress
+```
+
+If global installs are not permitted in this environment:
+
+```bash
+npm install paintress          # project-local; call it through npx paintress ...
+npx -y paintress@latest ...    # no install at all; slower on first run
+```
+
+Prefer the global install. It is what makes the entry in every client config reusable by the next agent.
+
+### 2. Register the MCP server for the agent you are running in
+
+```bash
+paintress doctor                    # list detected clients and their state
+paintress install --dry-run         # preview the writes
+paintress install <client-id>       # write only the client you are running in
+```
+
+Client ids: `claude`, `cursor`, `vscode`, `codex`, `pi`. Use `paintress install` without arguments to cover every detected client.
+
+What the write does:
+
+- adds or refreshes one entry named `paintress` (`mcpServers.paintress`, or `servers.paintress` for VS Code, or `[mcp_servers.paintress]` for Codex);
+- leaves every other key, server and comment structure in the file alone;
+- writes `*.bak-<timestamp>` next to the file before replacing it;
+- is idempotent: an identical entry reports `noop` and nothing is written;
+- uses the bare command `paintress` when it resolves on PATH, otherwise the absolute path of the binary.
+
+If the agent you run in is not in that list, print the closest snippet and adapt it:
+
+```bash
+paintress mcp-config cursor   # JSON with mcpServers
+paintress mcp-config vscode   # JSON with servers + type: stdio
+paintress mcp-config codex    # TOML table
+```
+
+### 3. Install the skill (recommended)
+
+```bash
+cp "$(npm root -g)/paintress/skills/paintress/SKILL.md" <your-skill-dir>/paintress/SKILL.md
+```
+
+Use the skill directory your harness actually reads (`~/.pi/agent/skills/`, `~/.claude/skills/`, `.cursor/skills/`, …). If your harness has no skill mechanism, load the file into context once and keep the tool list.
+
+### 4. Verify
+
+```bash
+paintress doctor                                        # entry present, command resolvable
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}\n' | paintress mcp
+```
+
+The second command must answer with a `result` containing `"serverInfo": {"name": "paintress", …}`. After a session restart, `paintress_doc_info` on any `.pen` file is the end-to-end check.
+
+### 5. Multi-agent rules
+
+- One global install serves every agent on the machine. Do not create per-agent copies.
+- Each agent adds **its own** config entry. Never rewrite another agent's file, and never remove entries you did not add.
+- If `doctor` reports `noop`, another agent already registered it correctly — stop there and say so.
+- Report the outcome as: reused / installed / registered (which client) / skipped (why).
+
+### 6. Uninstall
+
+```bash
+npm uninstall -g paintress
+```
+
+Then delete the `paintress` entry from each client config, or restore the newest `*.bak-<timestamp>` next to it.

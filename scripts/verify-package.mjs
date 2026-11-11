@@ -51,7 +51,11 @@ if (check('ui/dist/index.html', 'viewer 前端入口')) {
   if (!hasAssets) errors.push('缺少 ui/dist/assets/（前端未构建）');
 }
 
-// 3) CLI 必须是可执行的 ESM，带 shebang
+// 3) README 引用的资源与随包 skill
+check('assets/logo.svg', 'README 品牌图');
+check('skills/paintress/SKILL.md', 'agent skill');
+
+// 4) CLI 必须是可执行的 ESM，带 shebang
 const cliPath = join(root, 'dist/cli.js');
 if (existsSync(cliPath)) {
   const head = readFileSync(cliPath, 'utf8').slice(0, 40);
