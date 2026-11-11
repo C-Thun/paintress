@@ -157,10 +157,10 @@ export default function App() {
     const style = doc.createElement('style');
     style.id = 'ptr-style';
     style.textContent = [
-      '[data-ptr-selected]{outline:2px solid #97885f !important;outline-offset:-2px;}',
-      '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed #c9a227 !important;outline-offset:-2px;}',
-      '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #c9a227 !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
-      '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #c9a227}50%{box-shadow:inset 0 0 0 2px #e6d9a8}}',
+      '[data-ptr-selected]{outline:2px solid #908030 !important;outline-offset:-2px;}',
+      '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed rgba(144,128,48,.55) !important;outline-offset:-2px;}',
+      '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #908030 !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
+      '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #908030}50%{box-shadow:inset 0 0 0 2px rgba(144,128,48,.35)}}',
       'html{cursor:default;}',
       'html,body{overflow:hidden;}',
     ].join('\n');

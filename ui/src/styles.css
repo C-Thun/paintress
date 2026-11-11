@@ -4,10 +4,10 @@
   --border: #e2e8f0;
   --text: #1e293b;
   --muted: #64748b;
-  --accent: #254e8a;        /* logo 主蓝 */
-  --accent-soft: #e9eef7;
-  --gold: #97885f;          /* 1964 金 */
-  --gold-bright: #c9a227;
+  --accent: #205080;                      /* logo 蓝（定稿） */
+  --accent-soft: rgba(32, 80, 128, 0.08);
+  --gold: #908030;                        /* logo 金（定稿） */
+  --gold-soft: rgba(144, 128, 48, 0.45);
   --radius: 8px;
 }
 
