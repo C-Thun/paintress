@@ -42,8 +42,8 @@ paintress install pi cursor # 或只写指定的客户端
 ## CLI
 
 ```text
-paintress mcp <file>?                                  启动 stdio MCP server
-paintress doc_info <file>                              文档摘要
+paintress mcp                                             启动 stdio MCP server
+paintress info <file>                                     文档摘要
 paintress query <file> [--type t] [--name n|--regex]   条件查询节点
 paintress get <file> <id> [--depth n]                  读取节点子树
 paintress update <file> <id> '<patch-json>'            浅合并更新属性
@@ -173,6 +173,7 @@ paintress mcp-config codex    # TOML 表
 ### 3. 安装 skill（建议）
 
 ```bash
+mkdir -p <技能目录>/paintress
 cp "$(npm root -g)/paintress/skills/paintress/SKILL.md" <技能目录>/paintress/SKILL.md
 ```
 

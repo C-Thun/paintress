@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildEntry,
   findClient,
+  isClientDetected,
   jsonSnippet,
   resolveLaunchCommand,
   tomlSnippet,
@@ -42,6 +43,17 @@ describe('客户端路径解析', () => {
   });
 });
 
+describe('客户端检测', () => {
+  it('配置目录存在即视为已安装/已使用，即使配置文件尚未创建', () => {
+    const detected = isClientDetected(PI, '/home/u', 'linux', {}, (p) => p === '/home/u/.pi/agent');
+    expect(detected).toBe(true);
+  });
+
+  it('目录和文件都不存在时不检测', () => {
+    expect(isClientDetected(PI, '/home/u', 'linux', {}, () => false)).toBe(false);
+  });
+});
+
 describe('配置条目生成', () => {
   it('普通客户端只有 command/args', () => {
     expect(buildEntry(claude, launch)).toEqual({ command: 'paintress', args: ['mcp'] });
@@ -56,6 +68,11 @@ describe('配置条目生成', () => {
       servers: { paintress: { type: 'stdio', command: 'paintress', args: ['mcp'] } },
     });
     expect(tomlSnippet(launch)).toBe('[mcp_servers.paintress]\ncommand = "paintress"\nargs = ["mcp"]\n');
+  });
+
+  it('TOML 片段转义 Windows 路径中的反斜杠与引号', () => {
+    const text = tomlSnippet({ command: 'C:\\tools\\paintress\\cli.js', args: ['mcp'] });
+    expect(text).toContain('command = "C:\\\\tools\\\\paintress\\\\cli.js"');
   });
 });
 
@@ -131,6 +148,13 @@ describe('TOML（只追加，不改写）', () => {
     const existing = '[mcp_servers.paintress]\ncommand = "paintress"\nargs = ["mcp"]\n';
     expect(planJsonMerge(codex, '/x/config.toml', existing, launch).status).toBe('noop');
   });
+
+  it('已有条目使用引号或点两侧空白时也识别，不生成重复表', () => {
+    for (const table of ['[mcp_servers."paintress"]', "[mcp_servers.'paintress']", '[mcp_servers . paintress]']) {
+      const existing = `${table}\ncommand = "old"\n`;
+      expect(planJsonMerge(codex, '/x/config.toml', existing, launch).status).toBe('noop');
+    }
+  });
 });
 
 describe('启动命令解析', () => {
@@ -191,6 +215,14 @@ describe('落盘', () => {
     expect(readFileSync(backup as string, 'utf8')).toBe('{"a":1}\n');
     expect(readdirSync(dir).some((f) => f.startsWith('mcp.json.bak-'))).toBe(true);
     expect(readdirSync(dir).some((f) => f.startsWith('.paintress-tmp-'))).toBe(false);
+  });
+
+  it('保留已有配置文件的权限位（0600 不会被放宽）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ptr-plan-'));
+    const path = join(dir, 'mcp.json');
+    writeFileSync(path, '{"secret":true}\n', { mode: 0o600 });
+    applyPlan(path, '{"secret":false}\n', false);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
   it('目录不存在时递归创建', () => {

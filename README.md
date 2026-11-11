@@ -42,8 +42,8 @@ paintress install pi cursor # or only the ones you name
 ## CLI
 
 ```text
-paintress mcp <file>?                                   start the stdio MCP server
-paintress doc_info <file>                               document summary
+paintress mcp                                              start the stdio MCP server
+paintress info <file>                                      document summary
 paintress query <file> [--type t] [--name n|--regex]    find nodes
 paintress get <file> <id> [--depth n]                   read a node subtree
 paintress update <file> <id> '<patch-json>'             shallow-merge attributes
@@ -173,6 +173,7 @@ paintress mcp-config codex    # TOML table
 ### 3. Install the skill (recommended)
 
 ```bash
+mkdir -p <your-skill-dir>/paintress
 cp "$(npm root -g)/paintress/skills/paintress/SKILL.md" <your-skill-dir>/paintress/SKILL.md
 ```
 

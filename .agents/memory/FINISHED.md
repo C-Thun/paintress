@@ -101,3 +101,9 @@
 - `0.2.1`：版本号去硬编码（此前 MCP serverInfo、ping、`.ptr` generator 都写死 0.1.0）。
 - 安装链路实测通过：全局安装 → `doctor` 解析出裸命令 → `install pi` 写入配置 → MCP 握手报 0.2.1。
 - 证据：`.agents/implementations/2026-11-12-version-and-release-0.2.md`、`2026-11-12-icon-and-cream-ui.md`。
+
+### 编码评审与修复（2026-11-12）
+
+- 修复客户端检测、dry-run 布尔解析、配置权限保留、TOML 转义/重复表、超大画布缩放下限、Alt 横向滚轮，以及 OIDC 发布工作流的 npm CLI 与手动触发问题。
+- 新增 9 个回归用例；最终 11 文件 170 用例全绿，真实 Chromium 验证通过。
+- 记录与剩余风险：`.agents/implementations/2026-11-12-code-review-fixes.md`。

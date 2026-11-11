@@ -6,6 +6,9 @@
  */
 import {
   fitBox,
+  levelStepFromWheel,
+  MIN_FIT_ZOOM,
+  MIN_ZOOM,
   panBy,
   transformCss,
   zoomAt,
@@ -99,7 +102,8 @@ export function bindViewport({ doc, onChange, onLevelStep }: BindOptions): Viewp
   function onWheel(ev: WheelEvent): void {
     ev.preventDefault();
     if (ev.altKey && onLevelStep !== undefined) {
-      onLevelStep(ev.deltaY > 0 ? -1 : 1, { x: ev.clientX, y: ev.clientY });
+      const direction = levelStepFromWheel(ev.deltaX, ev.deltaY);
+      if (direction !== null) onLevelStep(direction, { x: ev.clientX, y: ev.clientY });
       return;
     }
     stopTransition();
@@ -107,7 +111,9 @@ export function bindViewport({ doc, onChange, onLevelStep }: BindOptions): Viewp
     let unit = 1;
     if (ev.deltaMode === 1) unit = 16; // 行模式：按一行 16px 近似
     else if (ev.deltaMode === 2) unit = viewportSize().height; // 页模式
-    set(zoomAt(vp, Math.exp(-ev.deltaY * unit * WHEEL_SENSITIVITY), ev.clientX, ev.clientY));
+    // 超大画布 fit 可到 0.02；从该状态继续缩放时沿用同一下限，避免一次滚轮跳回 0.1。
+    const min = vp.z < MIN_ZOOM ? MIN_FIT_ZOOM : MIN_ZOOM;
+    set(zoomAt(vp, Math.exp(-ev.deltaY * unit * WHEEL_SENSITIVITY), ev.clientX, ev.clientY, min));
   }
 
   // ---------- 平移 ----------

@@ -7,6 +7,8 @@
  * - 路径由 home / platform / env 注入，测试不依赖真实文件系统。
  */
 
+import { dirname } from 'node:path';
+
 export type ClientId = 'claude' | 'cursor' | 'vscode' | 'codex' | 'pi';
 
 export interface ClientSpec {
@@ -78,6 +80,21 @@ export function findClient(id: string): ClientSpec | undefined {
   return CLIENTS.find((c) => c.id === id);
 }
 
+/**
+ * 客户端是否已在本机出现过：配置目录存在即视为已安装/已使用。
+ * 不依赖可执行文件是否在 PATH（GUI 客户端通常不在 PATH），也不扫全盘。
+ */
+export function isClientDetected(
+  spec: ClientSpec,
+  home: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  exists: (path: string) => boolean,
+): boolean {
+  const path = spec.configPath(home, platform, env);
+  return exists(path) || exists(dirname(path));
+}
+
 export interface LaunchCommand {
   command: string;
   args: string[];
@@ -131,8 +148,9 @@ export function buildEntry(spec: ClientSpec, launch: LaunchCommand): Record<stri
 
 /** Codex 用的 TOML 片段（改 TOML 风险高，只输出不写入） */
 export function tomlSnippet(launch: LaunchCommand, name = 'paintress'): string {
-  const args = launch.args.map((a) => `"${a}"`).join(', ');
-  return `[mcp_servers.${name}]\ncommand = "${launch.command}"\nargs = [${args}]\n`;
+  // JSON 字符串转义与 TOML 基本字符串兼容；Windows 路径中的反斜杠必须转义。
+  const args = launch.args.map((a) => JSON.stringify(a)).join(', ');
+  return `[mcp_servers.${name}]\ncommand = ${JSON.stringify(launch.command)}\nargs = [${args}]\n`;
 }
 
 /** JSON 客户端用的片段（含顶层键） */

@@ -2,9 +2,9 @@
  * 配置写入：解析 → 合并 → 备份 → 原子落盘。
  * 只动 `rootKey` 下名为 `paintress` 的那一条，其余内容与顺序保持不变（JSON 重新序列化）。
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildEntry, type ClientSpec, type LaunchCommand } from './clients.js';
+import { buildEntry, tomlSnippet, type ClientSpec, type LaunchCommand } from './clients.js';
 
 export type PlanStatus = 'create' | 'update' | 'noop' | 'invalid';
 
@@ -28,11 +28,10 @@ export function planJsonMerge(
   const base: InstallPlan = { spec, path, status: 'noop', next: null, detail: '' };
 
   if (spec.format === 'toml') {
-    const snippet = `[mcp_servers.paintress]\ncommand = "${launch.command}"\nargs = [${launch.args
-      .map((a) => `"${a}"`)
-      .join(', ')}]\n`;
+    const snippet = tomlSnippet(launch);
     if (existing === null) return { ...base, status: 'create', next: snippet, detail: '将创建配置文件并写入条目' };
-    if (existing.includes('[mcp_servers.paintress]')) {
+    // 允许已有的引号表名与点两侧空白；否则追加同一个逻辑表会生成非法 TOML。
+    if (/^\s*\[\s*mcp_servers\s*\.\s*(?:paintress|"paintress"|'paintress')\s*\]\s*$/m.test(existing)) {
       return { ...base, status: 'noop', detail: '条目已存在（TOML 不自动改写）' };
     }
     const next = `${existing.replace(/\s*$/, '')}\n\n${snippet}`;
@@ -84,6 +83,8 @@ export function applyPlan(path: string, content: string, dryRun: boolean): { bac
   }
   const tmp = join(dirname(path), `.paintress-tmp-${process.pid}`);
   writeFileSync(tmp, content, 'utf8');
+  // rename 会替换 inode；不保留 mode 会把 0600 的含凭据配置放宽成 0644。
+  if (existsSync(path)) chmodSync(tmp, statSync(path).mode & 0o777);
   renameSync(tmp, path);
   return { backup };
 }

@@ -9,6 +9,7 @@ import { isDaemonRunning, sendRequest, attachPersistent } from './web/client.js'
 import {
   CLIENTS,
   findClient,
+  isClientDetected,
   jsonSnippet,
   resolveLaunchCommand,
   tomlSnippet,
@@ -50,6 +51,7 @@ export interface ParsedCommand {
 }
 
 const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run']);
+const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run']);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
 export function parseArgv(argv: string[]): ParsedCommand | null {
@@ -63,7 +65,7 @@ export function parseArgv(argv: string[]): ParsedCommand | null {
       const key = tok.slice(2);
       if (!FLAG_KEYS.has(key)) return null; // 未知标志直接判非法
       const next = rest[i + 1];
-      if (key === 'regex' || key === 'reusable') {
+      if (BOOLEAN_FLAGS.has(key)) {
         flags[key] = true;
       } else if (typeof next === 'string' && !next.startsWith('--')) {
         flags[key] = next;
@@ -187,7 +189,13 @@ export async function main(argv: string[]): Promise<number> {
     if (cmd === 'install' || cmd === 'doctor') {
       const home = homedir();
       const launch = currentLaunchCommand();
-      const ids = positionals.length > 0 ? positionals : CLIENTS.map((c) => c.id);
+      const detected = (spec: (typeof CLIENTS)[number]): boolean =>
+        isClientDetected(spec, home, process.platform, process.env, existsSync);
+      // install 未点名时只写「检测到」的客户端；doctor 则列出全部并标注 detected。
+      let ids: string[];
+      if (positionals.length > 0) ids = positionals;
+      else if (cmd === 'doctor') ids = CLIENTS.map((c) => c.id);
+      else ids = CLIENTS.filter(detected).map((c) => c.id);
       const unknown = ids.filter((id) => findClient(id) === undefined);
       if (unknown.length > 0) {
         throw new Error(`未知客户端：${unknown.join(', ')}（可选：${CLIENTS.map((c) => c.id).join(' / ')}）`);
@@ -201,7 +209,15 @@ export async function main(argv: string[]): Promise<number> {
         const existing = readConfig(path);
         const plan = planJsonMerge(spec, path, existing, launch);
         if (cmd === 'doctor') {
-          results.push({ client: spec.id, label: spec.label, path, exists: existing !== null, status: plan.status, detail: plan.detail });
+          results.push({
+            client: spec.id,
+            label: spec.label,
+            path,
+            detected: detected(spec),
+            exists: existing !== null,
+            status: plan.status,
+            detail: plan.detail,
+          });
           continue;
         }
         if (plan.status === 'invalid' || plan.next === null) {
@@ -360,11 +376,10 @@ export async function main(argv: string[]): Promise<number> {
 // 不能用 argv[1].endsWith('cli.js') 判断：npm 安装后的 bin 是指向 dist/cli.js 的符号链接，
 // argv[1] 变成 `.../node_modules/.bin/paintress`，后缀匹配会失败 → 静默退出 0。
 // 改用 realpath 比较：符号链接、`node dist/cli.js`、直接执行三种情况下都能正确识别。
-function isDirectExecution(): boolean {
-  const entry = process.argv[1];
+export function isDirectExecution(entry = process.argv[1], moduleUrl = import.meta.url): boolean {
   if (entry === undefined) return false;
   try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+    return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
   } catch {
     return false;
   }

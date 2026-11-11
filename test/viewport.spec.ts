@@ -3,6 +3,7 @@ import {
   centerOn,
   clampZoom,
   fitBox,
+  levelStepFromWheel,
   IDENTITY,
   MAX_ZOOM,
   MIN_ZOOM,
@@ -74,10 +75,25 @@ describe('fitBox', () => {
     expect(vp.z).toBe(0.02);
   });
 
+  it('超大画布 fit 后继续缩放，沿用 0.02 下限而不是跳回 0.1', () => {
+    const fitted = fitBox({ x: 0, y: 0, w: 200000, h: 200000 }, { width: 1000, height: 600 });
+    const zoomed = zoomAt(fitted, 1.01, 500, 300, 0.02);
+    expect(zoomed.z).toBeCloseTo(0.0202, 9);
+  });
+
   it('零尺寸盒不除零', () => {
     const vp = fitBox({ x: 10, y: 10, w: 0, h: 0 }, { width: 800, height: 600 });
     expect(Number.isFinite(vp.z)).toBe(true);
     expect(vp.z).toBeGreaterThan(0);
+  });
+});
+
+describe('Alt+滚轮层级方向', () => {
+  it('只认纵向增量；水平滚动或零增量不切换层级', () => {
+    expect(levelStepFromWheel(0, -120)).toBe(1);
+    expect(levelStepFromWheel(0, 120)).toBe(-1);
+    expect(levelStepFromWheel(120, 0)).toBeNull();
+    expect(levelStepFromWheel(120, 20)).toBeNull();
   });
 });
 

@@ -32,6 +32,12 @@ export const MIN_FIT_ZOOM = 0.02;
 export const MAX_ZOOM = 4;
 export const FIT_PADDING = 24;
 
+/** Alt+滚轮的层级方向；水平滚动或零增量不应被误判为「下一层」。 */
+export function levelStepFromWheel(deltaX: number, deltaY: number): 1 | -1 | null {
+  if (deltaY === 0 || Math.abs(deltaX) >= Math.abs(deltaY)) return null;
+  return deltaY > 0 ? -1 : 1;
+}
+
 export const IDENTITY: Viewport = { z: 1, tx: 0, ty: 0 };
 
 export function clampZoom(z: number, min = MIN_ZOOM): number {

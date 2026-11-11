@@ -29,6 +29,10 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
+      - name: Install npm CLI with trusted publishing support
+        # Node 22 自带的 npm 可能低于 11.5.1；OIDC trusted publishing 需要该版本以上。
+        run: npm install -g npm@11.15.0
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -45,6 +49,8 @@ jobs:
         run: pnpm verify:pkg
 
       - name: Check tag matches package version
+        # workflow_dispatch 的 GITHUB_REF_NAME 是分支名，不是 tag；只在校验 tag 推送时执行。
+        if: github.event_name == 'push'
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"

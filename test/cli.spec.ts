@@ -1,8 +1,9 @@
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { parseArgv, main } from '../src/cli.js';
+import { isDirectExecution, parseArgv, main } from '../src/cli.js';
 
 describe('parseArgv', () => {
   it('子命令 + 位置参数', () => {
@@ -21,12 +22,34 @@ describe('parseArgv', () => {
     expect(parseArgv(['query', 'a.pen', '--reusable', 'x'])?.positionals).toEqual(['a.pen', 'x']);
   });
 
+  it('dry-run 在客户端名前仍是布尔值，不吞位置参数', () => {
+    expect(parseArgv(['install', '--dry-run', 'pi'])).toEqual({
+      cmd: 'install',
+      positionals: ['pi'],
+      flags: { 'dry-run': true },
+    });
+  });
+
   it('未知标志返回 null', () => {
     expect(parseArgv(['query', 'a.pen', '--bogus'])).toBeNull();
   });
 
   it('空参数返回 null', () => {
     expect(parseArgv([])).toBeNull();
+  });
+});
+
+describe('bin 直接执行判定', () => {
+  it('npm 的 bin 符号链接指向当前模块 → true', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'paintress-bin-'));
+    const link = join(dir, 'paintress');
+    symlinkSync(fileURLToPath(new URL('../src/cli.ts', import.meta.url)), link);
+    try {
+      expect(isDirectExecution(link)).toBe(true);
+      expect(isDirectExecution(join(dir, 'missing.js'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
