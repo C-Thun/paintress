@@ -237,11 +237,16 @@ function renderNode(
       inner = escapeHtml(content);
       break;
     }
-    case 'icon': {
+    case 'icon':
+    case 'icon_font': {
       const colorCss = fillsToCss(node['fill'], vars, warnings, label).find(([p]) => p === 'background-color');
       if (colorCss) css.push(['color', colorCss[1]], ['background', 'transparent']);
-      const lib = typeof node['library'] === 'string' ? node['library'] : 'lucide';
-      const iconName = typeof node['icon'] === 'string' ? node['icon'] : '';
+      // icon_font 是上游工具的写法（iconFontName / iconFontFamily），与 icon 语义等价
+      const fontVariant = type === 'icon_font';
+      const libField = fontVariant ? node['iconFontFamily'] : node['library'];
+      const nameField = fontVariant ? node['iconFontName'] : node['icon'];
+      const lib = typeof libField === 'string' && libField !== '' ? libField : 'lucide';
+      const iconName = typeof nameField === 'string' ? vars.resolve(nameField) : '';
       let svg: string | null = null;
       if (lib === 'lucide' || lib === 'feather') {
         svg = getLucideIcon(iconName, warnings);
@@ -309,7 +314,7 @@ function renderNode(
   return openTag(node, cssStr, extraAttrs) + inner + childrenHtml + '</div>';
 }
 
-const KNOWN_RENDER_TYPES = new Set(['frame', 'group', 'rectangle', 'ellipse', 'polygon', 'path', 'text', 'note', 'icon', 'script', 'browser']);
+const KNOWN_RENDER_TYPES = new Set(['frame', 'group', 'rectangle', 'ellipse', 'polygon', 'path', 'text', 'note', 'icon', 'icon_font', 'script', 'browser']);
 
 /** 顶层包围盒（数值尺寸参与计算；sizing 回退值兜底；缺省按 0 贡献） */
 export function computeCanvas(nodes: PenNode[], vars: VarResolver): { width: number; height: number } {

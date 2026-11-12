@@ -74,6 +74,32 @@ describe('ref.pen：组件实例展开', () => {
   });
 });
 
+describe('icon-font.pen：上游 icon_font 写法', () => {
+  const r = renderFixture('icon-font.pen');
+
+  it('icon_font 按 icon 渲染：lucide SVG 内联，不是占位框', () => {
+    expect(r.html).toContain('data-node-id="logoIcon"');
+    expect(r.html).toContain('lucide-message-square');
+    expect(r.html).toContain('lucide-search');
+    expect(r.html).not.toContain('icon_font:');
+  });
+
+  it('缺 iconFontFamily 时按 lucide 处理', () => {
+    expect(r.html).toContain('lucide-search');
+    expect(r.warnings.some((w) => w.includes('noFamily'))).toBe(false);
+  });
+
+  it('iconFontName 支持变量引用', () => {
+    expect(r.html).toContain('lucide-check');
+    expect(r.warnings.some((w) => w.includes('variableName'))).toBe(false);
+  });
+
+  it('图标名不存在 → 占位框 + 警告，不炸', () => {
+    expect(r.html).toContain('lucide:not-a-real-icon');
+    expect(r.warnings.some((w) => w.includes('not-a-real-icon'))).toBe(true);
+  });
+});
+
 describe('unknown.pen：未知类型与未定义变量', () => {
   const r = renderFixture('unknown.pen');
 

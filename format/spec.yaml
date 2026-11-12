@@ -489,6 +489,24 @@ nodes:
       weight:
         type: num_or_var
         desc: 100 到 700，仅支持的库有效
+  icon_font:
+    desc: 与 icon 等价的另一种序列化写法（上游文件的常见形态）——同样的字形、同样的盒内等比缩放
+    base:
+      - node_base
+    fields:
+      iconFontFamily:
+        desc: 等价于 icon 的 library；缺省按 lucide 处理
+        enum_ref: icon_library
+      iconFontName:
+        desc: 等价于 icon 的 icon（lucide 用 kebab 名，如 message-square）
+        type: string_or_var
+      weight:
+        type: num_or_var
+        desc: 100 到 700，仅支持的库有效
+    notes:
+      - 渲染与校验与 icon 走同一套逻辑，两者仅字段名不同
+      - 属冻结 pen profile 的兼容性补全：真实 .pen 文件在本次识别前已使用该类型，不改变既有字段或写入语义
+      - 2026-11-12 起识别；此前被当作未知类型渲染为占位框
   script:
     desc: 由 JavaScript 生成子树的动态节点；ptr v1 暂不实现渲染，保留解析
     base:

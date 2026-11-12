@@ -1,0 +1,63 @@
+{
+  "version": "2.22",
+  "fileToken": "22222222-3333-4444-5555-666666666666",
+  "variables": {
+    "accent": { "type": "color", "value": "#205080" },
+    "glyph": { "type": "string", "value": "check" }
+  },
+  "children": [
+    {
+      "type": "frame",
+      "id": "rootF",
+      "name": "IconFont",
+      "x": 0,
+      "y": 0,
+      "width": 240,
+      "height": 120,
+      "fill": "#FFFFFF",
+      "layout": "horizontal",
+      "gap": 8,
+      "children": [
+        {
+          "type": "icon_font",
+          "id": "logoIcon",
+          "name": "logoIcon",
+          "width": 24,
+          "height": 24,
+          "iconFontName": "message-square",
+          "iconFontFamily": "lucide",
+          "fill": "$accent"
+        },
+        {
+          "type": "icon_font",
+          "id": "noFamily",
+          "name": "noFamily",
+          "width": 24,
+          "height": 24,
+          "iconFontName": "search",
+          "fill": "$accent"
+        },
+        {
+          "type": "icon_font",
+          "id": "variableName",
+          "name": "variableName",
+          "width": 24,
+          "height": 24,
+          "iconFontName": "$glyph",
+          "iconFontFamily": "lucide",
+          "fill": "$accent"
+        },
+        {
+          "type": "icon_font",
+          "id": "unknownName",
+          "name": "unknownName",
+          "width": 24,
+          "height": 24,
+          "iconFontName": "not-a-real-icon",
+          "iconFontFamily": "lucide",
+          "fill": "$accent"
+        }
+      ]
+    }
+  ]
+}

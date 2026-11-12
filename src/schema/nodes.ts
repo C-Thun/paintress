@@ -152,6 +152,22 @@ export const IconSchema = z
   })
   .passthrough();
 
+/**
+ * icon_font：上游设计工具的图标节点写法（`iconFontName` + `iconFontFamily`）。
+ * 语义与 `icon`（`icon` + `library`）等价，仅字段名不同；渲染与校验按同一套处理。
+ */
+export const IconFontSchema = z
+  .object({
+    type: z.literal('icon_font'),
+    ...NodeBase,
+    ...sizeBlock,
+    iconFontFamily: z.string().optional(),
+    iconFontName: StringOrVar.optional(),
+    weight: NumOrVar.optional(),
+    fill: z.unknown().optional(),
+  })
+  .passthrough();
+
 export const ScriptSchema = z
   .object({
     type: z.literal('script'),
@@ -196,20 +212,20 @@ export const RefSchema = z
 /** 已知节点类型清单（与 format/spec.yaml §nodes 的键一一对应） */
 export const KNOWN_NODE_TYPES = [
   'frame', 'group', 'rectangle', 'ellipse', 'polygon', 'path',
-  'text', 'note', 'icon', 'script', 'browser', 'ref',
+  'text', 'note', 'icon', 'icon_font', 'script', 'browser', 'ref',
 ] as const;
 
 export type KnownNodeType = (typeof KNOWN_NODE_TYPES)[number];
 
-/** 完整节点 union：已知 12 种 + 未知兜底。 */
+/** 完整节点 union：已知 13 种 + 未知兜底。 */
 export const UnknownNodeSchema = z
   .object({ type: z.string(), id: z.string().optional() })
   .passthrough();
 
 export const NodeSchema = z.union([
   FrameSchema, GroupSchema, RectangleSchema, EllipseSchema, PolygonSchema,
-  PathSchema, TextSchema, NoteSchema, IconSchema, ScriptSchema, BrowserSchema,
-  RefSchema, UnknownNodeSchema,
+  PathSchema, TextSchema, NoteSchema, IconSchema, IconFontSchema, ScriptSchema,
+  BrowserSchema, RefSchema, UnknownNodeSchema,
 ]);
 
 /** 已知类型 → 专属 schema；未知类型 → 宽松兑底（保留透传语义）。 */
@@ -223,6 +239,7 @@ const SCHEMA_BY_TYPE: Record<string, z.ZodTypeAny> = {
   text: TextSchema,
   note: NoteSchema,
   icon: IconSchema,
+  icon_font: IconFontSchema,
   script: ScriptSchema,
   browser: BrowserSchema,
   ref: RefSchema,
