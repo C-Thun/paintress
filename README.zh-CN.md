@@ -110,6 +110,21 @@ paintress mcp-config cursor   # 只打印片段，不改文件
 - `.agents/memory/ARCHITECTURE.md` —— 设计决策与理由
 - `.agents/implementations/` —— 每次变更的记录与实测数据
 
+## 发版（维护者）
+
+发布由 tag 驱动：`v*` tag 会让 `.github/workflows/publish.yml` 构建、测试并通过 OIDC trusted publishing 执行 `npm publish --provenance`。不要在笔记本上直接发布。
+
+```bash
+pnpm release patch      # 0.3.1 → 0.3.2
+pnpm release minor      # 0.3.1 → 0.4.0
+pnpm release major      # 0.3.1 → 1.0.0
+pnpm release patch --dry-run   # 只打印计划
+```
+
+脚本会拒绝在脏工作区或非默认分支上发版，确认 tag 未被占用，跑类型检查（服务端 + ui）、测试、构建与包内容自检，然后提交 `chore(release): vX.Y.Z`、打 tag、推分支与 tag，最后等到版本真的出现在 npm 上才算完（CI 绿了但什么都没发出去，会如实报成失败）。
+
+`--prepare-only` 停在本地提交与 tag；`--no-wait` 推完就返回；`--local` 本机直接发布，是应急路径，会跳过 CI 的检查。
+
 ## 许可
 
 MIT

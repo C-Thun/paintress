@@ -110,6 +110,21 @@ paintress mcp-config cursor   # print the exact snippet instead of editing files
 - `.agents/memory/ARCHITECTURE.md` — design decisions and their rationale
 - `.agents/implementations/` — per-change records with measurements
 
+## Release (maintainers)
+
+Publishing is tag-driven: a `v*` tag makes `.github/workflows/publish.yml` build, test and `npm publish --provenance` through OIDC trusted publishing. Do not publish from a laptop.
+
+```bash
+pnpm release patch             # 0.3.1 → 0.3.2
+pnpm release minor             # 0.3.1 → 0.4.0
+pnpm release major             # 0.3.1 → 1.0.0
+pnpm release patch --dry-run   # print the plan only
+```
+
+The script refuses to run on a dirty worktree or a non-default branch, verifies the tag is free, runs typecheck (server + ui), the test suite, the build and the package-contents check, then commits `chore(release): vX.Y.Z`, tags it, pushes branch + tag, and finally waits until the version is actually on npm (a green run that published nothing is reported as a failure, not a success).
+
+`--prepare-only` stops after the local commit and tag; `--no-wait` returns right after the push; `--local` publishes from this machine as an emergency path and skips the CI checks.
+
 ## License
 
 MIT
