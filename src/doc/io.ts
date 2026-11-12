@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, renameSync, copyFileSync, statSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, copyFileSync, statSync, mkdirSync, linkSync, unlinkSync } from 'node:fs';
 import { VERSION } from '../shared/version.js';
 import { basename, dirname, join } from 'node:path';
 import { DocumentSchema, X_PAINTRESS_KEY, PTR_SPEC_VERSION, type PenDocument } from '../schema/index.js';
@@ -56,6 +56,8 @@ export function loadDoc(path: string): LoadedDoc {
 export interface SaveOptions {
   /** 期望的文件 mtime（来自 loadDoc）。不一致则抛 FileChangedError */
   expectedMtimeMs?: number;
+  /** 只创建新文件：目标已存在时拒绝（用于 paintress_new 的跨进程覆盖保护） */
+  createOnly?: boolean;
   /** 备份目录；默认 /tmp/ptr-backup-<epoch> */
   backupDir?: string;
   /** 覆盖默认风味推断（如另存为 .ptr） */
@@ -103,7 +105,26 @@ export function saveDoc(path: string, doc: PenDocument, opts: SaveOptions = {}):
   const text = JSON.stringify(out, null, 2);
   const tmp = join(dirname(path), `.${basename(path)}.tmp-${process.pid}`);
   writeFileSync(tmp, text, 'utf8');
-  renameSync(tmp, path);
+  if (opts.createOnly) {
+    // link(2) 原子创建：即使另一个进程恰好在 existsSync 之后写入，也不会覆盖它。
+    // 临时文件与目标同目录，文件系统支持硬链接；不先 touch 目标，避免留下空文件。
+    try {
+      linkSync(tmp, path);
+    } catch (cause) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* 清理失败不影响原始错误 */
+      }
+      if ((cause as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new Error(`文件已存在，拒绝覆盖：${path}`);
+      }
+      throw cause;
+    }
+    unlinkSync(tmp);
+  } else {
+    renameSync(tmp, path);
+  }
   return statSync(path).mtimeMs;
 }
 

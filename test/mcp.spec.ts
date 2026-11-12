@@ -1,4 +1,4 @@
-import { readFileSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, copyFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -44,12 +44,13 @@ async function callRaw(name: string, args: Record<string, unknown>): Promise<Too
 }
 
 describe('工具发现', () => {
-  it('注册 12 个工具', async () => {
+  it('注册 13 个工具', async () => {
     const list = await client.listTools();
     expect(list.tools.map((t) => t.name).sort()).toEqual([
       'paintress_batch', 'paintress_delete', 'paintress_doc_info', 'paintress_get',
-      'paintress_insert', 'paintress_marks', 'paintress_move', 'paintress_query',
-      'paintress_render', 'paintress_screenshot', 'paintress_update', 'paintress_validate',
+      'paintress_insert', 'paintress_marks', 'paintress_move', 'paintress_new',
+      'paintress_query', 'paintress_render', 'paintress_screenshot', 'paintress_update',
+      'paintress_validate',
     ]);
   });
 });
@@ -129,6 +130,65 @@ describe('写工具（临时副本上）', () => {
     expect(res['ok']).toBe(true);
     const hits = (await call('paintress_query', { path: tmpFile, id: 'star' })) as { path: string }[];
     expect(hits[0]?.['path']).toBe('Star');
+  });
+});
+
+describe('新建文档', () => {
+  it('默认补 .ptr，产出可读可渲染的标准文档', async () => {
+    const target = join(tmpFile, '..', 'new/nested/created');  // 不带扩展名，父目录也不存在
+    const res = (await call('paintress_new', { path: target, name: 'Home', width: 320, height: 640 })) as Record<string, unknown>;
+    expect(res['ok']).toBe(true);
+    expect(res['path']).toBe(`${target}.ptr`);
+    expect(res['flavor']).toBe('ptr');
+
+    const info = (await call('paintress_doc_info', { path: `${target}.ptr` })) as Record<string, unknown>;
+    expect(info['flavor']).toBe('ptr');
+    expect(info['nodeCount']).toBe(1);
+    expect(info['topLevel']).toContainEqual({ id: res['boardId'], name: 'Home', type: 'frame' });
+
+    // x-paintress 写入（ptr 层要求 spec 字段）
+    const raw = JSON.parse(readFileSync(`${target}.ptr`, 'utf8')) as Record<string, unknown>;
+    expect((raw['x-paintress'] as Record<string, unknown>)['spec']).toBe('1');
+  });
+
+  it('已存在时拒绝覆盖，overwrite=true 才写', async () => {
+    const target = join(tmpFile, '..', 'dup.ptr');
+    await call('paintress_new', { path: target });
+    const blocked = await callRaw('paintress_new', { path: target });
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content[0]?.text).toContain('已存在');
+    const forced = (await call('paintress_new', { path: target, overwrite: true, name: 'Second' })) as Record<string, unknown>;
+    expect(forced['ok']).toBe(true);
+  });
+
+  it('显式 .pen 路径仍创建兼容格式，不注入 ptr 扩展', async () => {
+    const target = join(tmpFile, '..', 'legacy.pen');
+    const res = (await call('paintress_new', { path: target })) as Record<string, unknown>;
+    expect(res['flavor']).toBe('pen');
+    const raw = JSON.parse(readFileSync(target, 'utf8')) as Record<string, unknown>;
+    expect(raw['x-paintress']).toBeUndefined();
+  });
+
+  it('零或负尺寸拒绝创建，避免产出不可截图的画布', async () => {
+    const target = join(tmpFile, '..', 'bad-size.ptr');
+    for (const args of [{ width: 0 }, { width: -20 }, { height: 0 }]) {
+      const res = await callRaw('paintress_new', { path: target, ...args });
+      expect(res.isError).toBe(true);
+    }
+    expect(existsSync(target)).toBe(false);
+  });
+
+  it('新建后可直接 insert 子节点', async () => {
+    const target = join(tmpFile, '..', 'grow.ptr');
+    const created = (await call('paintress_new', { path: target, padding: 16, gap: 8 })) as Record<string, unknown>;
+    const ins = (await call('paintress_insert', {
+      path: target,
+      parent: created['boardId'],
+      node: { type: 'text', content: 'Hello', fontSize: 20 },
+    })) as Record<string, unknown>;
+    expect(ins['ok']).toBe(true);
+    const q = (await call('paintress_query', { path: target, type: 'text' })) as { id: string }[];
+    expect(q).toHaveLength(1);
   });
 });
 

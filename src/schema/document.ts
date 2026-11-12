@@ -30,6 +30,13 @@ export const XPaintress = z
 export const X_PAINTRESS_KEY = 'x-paintress';
 export const PTR_SPEC_VERSION = '1';
 
+/**
+ * 新文档写入的 `version` 字段值。
+ * 必须与 `format/spec.yaml§meta.layers.pen_profile.observed_document_version` 同步
+ * （`test/spec-conformance.spec.ts` 会断言两者相等）。
+ */
+export const PEN_DOC_VERSION = '2.22';
+
 /** 文档根。passthrough：fileToken 与未来未知顶层键全部透传。 */
 export const DocumentObjectSchema = z
   .object({

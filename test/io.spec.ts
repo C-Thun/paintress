@@ -92,6 +92,17 @@ describe('saveDoc：ptr 风味与安全', () => {
     expect(() => saveDoc(dst, reloaded.doc, { flavor: 'pen', expectedMtimeMs: reloaded.mtimeMs })).toThrow(FileChangedError);
   });
 
+  it('createOnly：新建成功；已存在时不覆盖且不丢原文件', () => {
+    const dst = join(tmp, 'create-only.ptr');
+    const loaded = loadDoc(join(fixtures, 'basic.pen'));
+    saveDoc(dst, loaded.doc, { flavor: 'ptr', createOnly: true });
+    const before = readFileSync(dst, 'utf8');
+    const changed = structuredClone(loaded.doc);
+    changed.variables = {};
+    expect(() => saveDoc(dst, changed, { flavor: 'ptr', createOnly: true })).toThrow(/已存在/);
+    expect(readFileSync(dst, 'utf8')).toBe(before);
+  });
+
   it('备份先行：覆盖前旧内容落备份目录', () => {
     const dir = join(tmp, 'backups');
     mkdirSync(dir, { recursive: true });

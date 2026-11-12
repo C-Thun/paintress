@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { loadDoc, saveDoc } from '../doc/io.js';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { loadDoc, saveDoc, type DocFlavor } from '../doc/io.js';
+import { createDoc } from '../doc/create.js';
 import { collectIds } from '../doc/id.js';
 import { validateDoc } from '../doc/validate.js';
 import { query as q, get as g, update as u, insert as i, remove as rm, move as mv, batch as bt, type BatchOp } from '../ops/index.js';
@@ -108,7 +109,75 @@ function countByType(children: unknown[]): Record<string, number> {
   return counts;
 }
 
+/**
+ * 新建文档。path 不带扩展名时补 `.ptr`：新建一律默认标准格式，
+ * `.pen` 只有在调用方显式写扩展名时才产出（兼容旧工具链）。
+ */
+function newDoc(args: Record<string, unknown>): ToolOutput {
+  const raw = reqStr(args, 'path');
+  const path = /\.(pen|ptr)$/i.test(raw) ? raw : `${raw}.ptr`;
+  const flavor: DocFlavor = path.toLowerCase().endsWith('.pen') ? 'pen' : 'ptr';
+  if (existsSync(path) && optBool(args, 'overwrite') !== true) {
+    throw new Error(`文件已存在，未覆盖：${path}（确需覆盖传 overwrite=true）`);
+  }
+
+  const width = optNum(args, 'width');
+  const height = optNum(args, 'height');
+  if (width !== undefined && width <= 0) throw new Error(`width 必须大于 0，收到：${width}`);
+  if (height !== undefined && height <= 0) throw new Error(`height 必须大于 0，收到：${height}`);
+
+  const layoutArg = optStr(args, 'layout');
+  if (layoutArg !== undefined && !['vertical', 'horizontal', 'none'].includes(layoutArg)) {
+    throw new Error(`layout 仅支持 vertical / horizontal / none，收到：${layoutArg}`);
+  }
+  const { doc, boardId } = createDoc({
+    name: optStr(args, 'name'),
+    width,
+    height,
+    fill: optStr(args, 'fill'),
+    layout: layoutArg === 'vertical' || layoutArg === 'horizontal' || layoutArg === 'none' ? layoutArg : undefined,
+    padding: optNum(args, 'padding'),
+    gap: optNum(args, 'gap'),
+  });
+
+  const check = validateDoc(doc);
+  if (!check.ok) {
+    throw new Error(`新建文档结构校验失败，未落盘：\n${check.errors.map((e) => `  ${e.path}: ${e.message}`).join('\n')}`);
+  }
+
+  // 连带建父目录：允许直接写到还不存在的设计稿目录
+  mkdirSync(dirname(path), { recursive: true });
+  saveDoc(path, doc, { flavor, createOnly: optBool(args, 'overwrite') !== true });
+  const board = doc.children[0] as Record<string, unknown> | undefined;
+  return {
+    ok: true,
+    path,
+    flavor,
+    version: doc.version,
+    boardId,
+    canvas: { width: Number(board?.['width'] ?? 0), height: Number(board?.['height'] ?? 0) },
+    warnings: check.warnings,
+  };
+}
+
 export const TOOLS: Record<string, ToolDef> = {
+  paintress_new: {
+    description:
+      '新建文档（.ptr 是 paintress 的标准格式；.pen 仅作兼容）。创建一个带空 board 的最小可用文档，可直接 render/screenshot 再逐层 insert；已存在同名文件时报错，除非 overwrite=true。path 不带扩展名时自动补 .ptr',
+    inputSchema: {
+      path: z.string().describe('新文档路径；不带扩展名时自动补 .ptr'),
+      name: z.string().optional().describe('board 名称（默认 Board）'),
+      width: z.number().positive().optional().describe('board 宽（默认 900）'),
+      height: z.number().positive().optional().describe('board 高（默认 600）'),
+      fill: z.string().optional().describe('board 背景色（默认 #FFFFFF）'),
+      layout: z.enum(['vertical', 'horizontal', 'none']).optional().describe('子节点布局（默认 vertical）'),
+      padding: z.number().optional().describe('board 内边距（默认 0）'),
+      gap: z.number().optional().describe('主轴向间距（默认 0）'),
+      overwrite: z.boolean().optional().describe('已存在时覆盖（默认 false）'),
+    },
+    run: (a) => newDoc(a),
+  },
+
   paintress_doc_info: {
     description: '文档摘要：版本、格式风味、节点统计、变量表、顶层节点',
     inputSchema: { path: z.string().describe('设计稿路径') },

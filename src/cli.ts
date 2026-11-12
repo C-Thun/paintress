@@ -22,6 +22,7 @@ import { VERSION } from './shared/version.js';
  * paintress CLI —— 与 MCP 共享同一套工具 handler。
  * 用法：
  *   paintress mcp                                    启动 stdio MCP server
+ *   paintress new <file> [--name n] [--width n] [--height n] [--fill c] [--layout l] [--force]
  *   paintress info <file>
  *   paintress query <file> [--type t] [--name n] [--regex] [--id i] [--reusable]
  *   paintress get <file> <id> [--depth n]
@@ -51,8 +52,8 @@ export interface ParsedCommand {
   flags: Record<string, string | boolean>;
 }
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout']);
-const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run']);
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force']);
+const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run', 'force']);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
 export function parseArgv(argv: string[]): ParsedCommand | null {
@@ -127,7 +128,7 @@ export async function main(argv: string[]): Promise<number> {
   }
   const parsed = parseArgv(argv);
   if (!parsed) {
-    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|info|query|get|update|insert|delete|move|batch|render|shot|validate|install|doctor|mcp-config> ...（版本：paintress --version）');
+    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|new|info|query|get|update|insert|delete|move|batch|render|shot|validate|install|doctor|mcp-config> ...（版本：paintress --version）');
     return 2;
   }
   const { cmd, positionals, flags } = parsed;
@@ -299,6 +300,27 @@ export async function main(argv: string[]): Promise<number> {
 
     let out: ToolOutput;
     switch (cmd) {
+      case 'new': {
+        const name = flagStr(flags, 'name');
+        const width = flagNum(flags, 'width');
+        const height = flagNum(flags, 'height');
+        const fill = flagStr(flags, 'fill');
+        const layout = flagStr(flags, 'layout');
+        const padding = flagNum(flags, 'padding');
+        const gap = flagNum(flags, 'gap');
+        out = await call('paintress_new', {
+          path: file,
+          ...(name !== undefined ? { name } : {}),
+          ...(width !== undefined ? { width } : {}),
+          ...(height !== undefined ? { height } : {}),
+          ...(fill !== undefined ? { fill } : {}),
+          ...(layout !== undefined ? { layout } : {}),
+          ...(padding !== undefined ? { padding } : {}),
+          ...(gap !== undefined ? { gap } : {}),
+          ...(flags['force'] === true ? { overwrite: true } : {}),
+        });
+        break;
+      }
       case 'info':
         out = await call('paintress_doc_info', { path: file });
         break;

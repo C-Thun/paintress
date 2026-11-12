@@ -11,6 +11,7 @@ import {
   FillRule, StrokeCap, StrokeJoin, StrokeAlign, TextAlign, TextAlignVertical,
   TextGrowth, ShadowKind, IconLibrary, PositionMode,
   X_PAINTRESS_KEY,
+  PEN_DOC_VERSION,
 } from '../src/index.js';
 
 /** 规格与实现的一致性：format/spec.yaml 是唯一事实来源，schema 必须与之一致 */
@@ -26,6 +27,14 @@ const spec = rec(
   yaml.load(readFileSync(join(import.meta.dirname, '../format/spec.yaml'), 'utf8')),
   '<root>',
 );
+
+describe('spec conformance: 新建文档', () => {
+  it('新文档版本与冻结 pen profile 的观察版本一致', () => {
+    const layers = rec(rec(spec['meta'], 'meta')['layers'], 'meta.layers');
+    const pen = rec(layers['pen_profile'], 'meta.layers.pen_profile');
+    expect(PEN_DOC_VERSION).toBe(pen['observed_document_version']);
+  });
+});
 
 describe('spec conformance: 节点类型', () => {
   it('KNOWN_NODE_TYPES 与 spec.nodes 键一致', () => {
