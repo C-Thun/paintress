@@ -8,13 +8,13 @@
 
 ## 这是什么
 
-paintress 读写结构化的设计稿——带公开 schema 的 JSON 文件（`.pen`，以及它自己写出的 `.ptr`）。它把设计稿渲染成 HTML，起一个本地查看器，并把同一套操作同时暴露为 MCP 工具和 CLI。
+paintress 读写结构化的设计稿——带公开 schema 的 JSON 文件。**`.ptr` 是 paintress 的标准格式**：paintress 创建的一切都是 `.ptr`。**`.pen` 兼容**：读取、编辑、渲染完全一致，绝不在背后悄悄转换。它把设计稿渲染成 HTML，起一个本地查看器，并把同一套操作同时暴露为 MCP 工具和 CLI。
 
 它不是编辑器：没有画布、没有拖拽、没有属性面板。人在浏览器里看设计稿并点击节点指认目标，agent 负责读写。
 
 | 组成 | 作用 |
 | --- | --- |
-| MCP 工具 | 查询、读取、更新、插入、删除、移动、批量、校验、渲染、截图 |
+| MCP 工具 | 新建、查询、读取、更新、插入、删除、移动、批量、校验、渲染、截图 |
 | CLI | 同样的操作，外加查看器进程；不接 agent 也能用 |
 | 查看器 | 本地 web 服务：渲染设计稿、高亮变更、把点击的节点变成 `#1`、`#2`… |
 | 截图 | 整张画布的 PNG，给能看图的 agent 用 |
@@ -43,6 +43,9 @@ paintress install pi cursor # 或只写指定的客户端
 
 ```text
 paintress mcp                                             启动 stdio MCP server
+paintress new <file> [--name n] [--width n] [--height n] [--fill c]
+                    [--layout vertical|horizontal|none] [--padding n] [--gap n] [--force]
+                                                          新建 .ptr（一个空画板）
 paintress info <file>                                     文档摘要
 paintress query <file> [--type t] [--name n|--regex]   条件查询节点
 paintress get <file> <id> [--depth n]                  读取节点子树
@@ -75,6 +78,8 @@ paintress watch demo ./demo
 
 画布操作：滚轮以指针为锚点缩放，空格 / 中键 / 空白处拖拽平移，`Ctrl/Cmd+0` 回到 100%，`Shift+1` 适应窗口。多画板文件会显示画板条。通过 CLI 或 MCP 做的修改会在查看器里高亮，点击会让节点获得短号，agent 用 `paintress_marks` 读回。
 
+工具条右侧有两个只影响查看的开关。**画布背景**切 Light / Gray / Dark，只改画布区底色，不动界面其它部分（点档位或拖滑块）。**界面语言**在中 / EN 之间切；首次打开跟随浏览器语言，不是中文就是英文。两者都按浏览器记住。注册新项目、或往已跟踪目录里放一个新的 `.ptr` / `.pen`，所有已打开的查看器都会自动刷新，不需要手按 F5。
+
 ## MCP 客户端
 
 `paintress install` 会写入下面这些位置，也可以手动添加。
@@ -101,6 +106,7 @@ paintress mcp-config cursor   # 只打印片段，不改文件
 
 - `specs/PLAN.md` —— 路线与未决问题
 - `format/spec.yaml` —— 文件格式规格（`.pen` 层冻结，`.ptr` 层演进）
+- `format/README.md` —— 两层关系，以及为什么 `.ptr` 是标准格式
 - `.agents/memory/ARCHITECTURE.md` —— 设计决策与理由
 - `.agents/implementations/` —— 每次变更的记录与实测数据
 
@@ -205,7 +211,7 @@ paintress doctor                                        # 条目存在、命令�
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}\n' | paintress mcp
 ```
 
-第二条命令应当返回包含 `"serverInfo": {"name": "paintress", …}` 的 `result`。会话重启后，对任意 `.pen` 文件调用 `paintress_doc_info` 是一次端到端验证。
+第二条命令应当返回包含 `"serverInfo": {"name": "paintress", …}` 的 `result`。会话重启后，对任意 `.ptr` 或 `.pen` 文件调用 `paintress_doc_info` 是一次端到端验证。
 
 ### 5. 多 agent 规则
 

@@ -8,13 +8,13 @@
 
 ## What it is
 
-paintress reads and writes structured design documents — JSON files with a documented schema (`.pen`, and its own `.ptr` for anything it writes). It renders them to HTML, serves a local viewer, and exposes the same operations as MCP tools and as a CLI.
+paintress reads and writes structured design documents — JSON files with a documented schema. **`.ptr` is paintress's standard format**: everything paintress creates is `.ptr`. **`.pen` is compatible**: read, edited and rendered the same way, never converted behind your back. It renders documents to HTML, serves a local viewer, and exposes the same operations as MCP tools and as a CLI.
 
 It is not an editor. There is no canvas, no drag-and-drop, no property panel. A human looks at the design in a browser and clicks nodes to point at them; the agent does the reading and writing.
 
 | Part | Purpose |
 | --- | --- |
-| MCP tools | query, read, update, insert, delete, move, batch, validate, render, screenshot |
+| MCP tools | create, query, read, update, insert, delete, move, batch, validate, render, screenshot |
 | CLI | the same operations plus the viewer process, for use without an agent |
 | Viewer | local web server: renders a document, highlights changes, hands back clicked nodes as `#1`, `#2`, … |
 | Screenshot | PNG of a whole canvas, for agents that can look at images |
@@ -43,6 +43,9 @@ paintress install pi cursor # or only the ones you name
 
 ```text
 paintress mcp                                              start the stdio MCP server
+paintress new <file> [--name n] [--width n] [--height n] [--fill c]
+                      [--layout vertical|horizontal|none] [--padding n] [--gap n] [--force]
+                                                           create a .ptr (one empty board)
 paintress info <file>                                      document summary
 paintress query <file> [--type t] [--name n|--regex]    find nodes
 paintress get <file> <id> [--depth n]                   read a node subtree
@@ -75,6 +78,8 @@ paintress watch demo ./demo
 
 Canvas navigation: wheel zooms at the pointer, space / middle button / empty area drags to pan, `Ctrl/Cmd+0` returns to 100%, `Shift+1` fits the window. Files with more than one board get a board strip. Edits made through the CLI or MCP are highlighted in the viewer, and clicks assign short ids that the agent can read back with `paintress_marks`.
 
+The toolbar's right side has two viewer-only controls. **Canvas background** switches Light / Gray / Dark for the design surface without touching the rest of the UI (click a stop or drag the knob). **Language** switches the interface between 中文 and EN; on first load it follows the browser, and anything that is not Chinese gets English. Both are per-browser and remembered locally. Registering a project, or dropping a new `.ptr` / `.pen` into a watched directory, updates every open viewer without a reload.
+
 ## MCP clients
 
 `paintress install` writes these; the same entries can be added by hand.
@@ -101,6 +106,7 @@ paintress mcp-config cursor   # print the exact snippet instead of editing files
 
 - `specs/PLAN.md` — roadmap and open questions
 - `format/spec.yaml` — the document format spec (the `.pen` profile is frozen; `.ptr` evolves)
+- `format/README.md` — how the two layers relate, and why `.ptr` is the standard format
 - `.agents/memory/ARCHITECTURE.md` — design decisions and their rationale
 - `.agents/implementations/` — per-change records with measurements
 
@@ -205,7 +211,7 @@ paintress doctor                                        # entry present, command
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}\n' | paintress mcp
 ```
 
-The second command must answer with a `result` containing `"serverInfo": {"name": "paintress", …}`. After a session restart, `paintress_doc_info` on any `.pen` file is the end-to-end check.
+The second command must answer with a `result` containing `"serverInfo": {"name": "paintress", …}`. After a session restart, `paintress_doc_info` on any `.ptr` or `.pen` file is the end-to-end check.
 
 ### 5. Multi-agent rules
 
