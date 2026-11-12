@@ -113,4 +113,5 @@
 - 新增 `windsurf`（`~/.codeium/windsurf/mcp_config.json`）与 `opencode`（`~/.config/opencode/opencode.json`）。
 - OpenCode 双布局（`mcp.servers` 版本 / `mcp` 旧版）按已有文件探测，`--opencode-layout` 可强制；条目模型从 `rootKey`+`needsType` 泛化为 `rootPath` + `typeValue`/`commandForm`/`extraFields`。
 - 双语 README 补「不在列表里怎么接」三步（定位配置 → 对照形状 → 打印片段）与「加一条 spec 即可内置」。
-- 证据：`.agents/implementations/2026-11-12-windsurf-opencode.md`（177 用例全绿 + 真实 opencode 配置合并实测）。
+- `0.3.1` 修掉 npm 11 的 `bin` 前缀陷阱（`./dist/cli.js` 会被规范化并每次发版告警）并补 `paintress --version`。
+- 证据：`.agents/implementations/2026-11-12-windsurf-opencode.md`（178 用例全绿 + 真实 opencode 配置合并实测 + 从 registry 全新安装验证）。
