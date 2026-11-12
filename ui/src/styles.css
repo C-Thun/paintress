@@ -57,6 +57,7 @@ body {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: -0.01em;
+  color: var(--accent);              /* 字标用主色（operator 2026-11-12） */
 }
 
 .badge {
@@ -199,7 +200,7 @@ body {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg);
+  background: var(--canvas-bg, var(--bg));
 }
 
 .toolbar {
@@ -227,8 +228,14 @@ body {
   width: calc(100% - 24px);
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--canvas-bg, #fff);
   box-shadow: 0 1px 2px rgba(31, 42, 55, 0.05), 0 8px 24px rgba(31, 42, 55, 0.05);
+}
+
+/* 深色画布下边框/投影降到中性，避免白边抢眼 */
+.stage[data-canvas-bg='dark'] .preview {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.32);
 }
 
 .placeholder {
@@ -327,10 +334,129 @@ body {
 }
 
 /* ---------- 品牌 ---------- */
+/* logo 原始比例 540×942（竖长），定高不宽可避免正方形框里的上下留白 */
 .brand-mark {
-  width: 22px;
-  height: 22px;
+  height: 32px;
+  width: auto;
   flex: 0 0 auto;
+}
+
+/* ---------- 画布背景切换（凹槽 + 圆滑块） ---------- */
+.canvas-bg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  user-select: none;
+}
+
+.canvas-bg-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-width: 34px;
+  text-align: right; /* 三档名字长度不同，固定宽度避免轨道左右跳 */
+}
+
+.canvas-bg-track {
+  position: relative;
+  width: 84px;
+  height: calc(var(--thumb) + var(--pad) * 2);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #e7e0d5, #f3eee6 60%, #f7f2ea);
+  box-shadow:
+    inset 0 1px 2px rgba(31, 42, 55, 0.24),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px rgba(31, 42, 55, 0.07),
+    0 1px 0 #fff;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.canvas-bg-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.canvas-bg-thumb {
+  position: absolute;
+  top: var(--pad);
+  left: var(--pad);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--thumb);
+  height: var(--thumb);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ffffff, #f1ebe1);
+  box-shadow:
+    0 1px 2px rgba(31, 42, 55, 0.3),
+    0 0 0 1px rgba(31, 42, 55, 0.08),
+    inset 0 1px 0 #fff;
+  transform: translateX(calc(var(--pos) * var(--step)));
+  transition: transform 0.17s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.canvas-bg-track.dragging .canvas-bg-thumb {
+  transition: none;
+}
+
+/* 滑块内核：当前画布颜色一目了然 */
+.canvas-bg-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--dot, #fff);
+  box-shadow:
+    0 0 0 1px rgba(31, 42, 55, 0.26),
+    0 1px 1px rgba(31, 42, 55, 0.12);
+  transition: background 0.17s;
+}
+
+/* ---------- 语言切换 ---------- */
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ece6dc, #f6f1e9);
+  box-shadow: inset 0 1px 2px rgba(31, 42, 55, 0.16), inset 0 0 0 1px rgba(31, 42, 55, 0.05);
+}
+
+.lang-opt {
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.lang-opt:hover {
+  color: var(--text);
+}
+
+.lang-opt.active {
+  background: linear-gradient(180deg, #fffdf9, #f3ede4);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(31, 42, 55, 0.18), inset 0 1px 0 #fff;
+}
+
+.tool-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  flex: 0 0 auto;
+  background: var(--border);
 }
 
 /* ---------- 画布工具条与画板条 ---------- */

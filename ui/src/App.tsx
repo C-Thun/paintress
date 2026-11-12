@@ -7,12 +7,21 @@ import {
   fetchFiles,
   fetchMarks,
   fetchProjects,
+  registryEventsUrl,
   renderUrl,
   type Mark,
   type ProjectInfo,
 } from './api';
 import { bindViewport, type ViewportBinding } from './frame-viewport';
 import { parseViewport } from './viewport';
+import {
+  CanvasBgSwitch,
+  CANVAS_BG_COLORS,
+  initialCanvasBackground,
+  rememberCanvasBackground,
+  type CanvasBackground,
+} from './canvas-bg';
+import { initialLang, messages, rememberLang, type Lang } from './i18n';
 
 interface Board {
   id: string;
@@ -49,8 +58,12 @@ export default function App() {
   const [boards, setBoards] = createSignal<Board[]>([]);
   const [activeBoard, setActiveBoard] = createSignal<string | null>(null);
   const [zoom, setZoom] = createSignal(1);
+  const [lang, setLang] = createSignal<Lang>(initialLang());
+  const [canvasBg, setCanvasBg] = createSignal<CanvasBackground>(initialCanvasBackground());
+  const m = (): ReturnType<typeof messages> => messages(lang());
 
   let frameEl: HTMLIFrameElement | undefined;
+  let stageEl: HTMLElement | undefined;
   let viewportCtl: ViewportBinding | null = null;
   let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -101,6 +114,46 @@ export default function App() {
     syncUrl();
   }
 
+  /**
+   * 注册表变了（别的窗口 watch/unwatch、或项目目录里新增了设计稿）：
+   * 重拉项目与文件列表，不靠用户按 F5。
+   */
+  async function refreshRegistry(): Promise<void> {
+    await loadProjects();
+    const p = activeProject();
+    if (p === null) return;
+    if (!projects().some((x) => x.name === p)) {
+      // 当前项目被 unwatch 掉了
+      setActiveProject(null);
+      setActiveFile(null);
+      setFiles([]);
+      setSelectedId(null);
+      setCrumbs([]);
+      syncUrl();
+      return;
+    }
+    try {
+      const res = await fetchFiles(p);
+      const prev = files();
+      setFiles(res.files);
+      // 新文件到达：若尚未选中任何设计稿，自动选中新出现的第一个，省一次手点
+      const f = activeFile();
+      if (f === null) {
+        const fresh = res.files.filter((x) => !prev.includes(x));
+        if (fresh.length > 0 && projects().some((x) => x.name === p)) openFile(fresh[0] as string);
+      } else if (!res.files.includes(f)) {
+        // 当前文件被删了
+        setActiveFile(null);
+        setSelectedId(null);
+        setCrumbs([]);
+        syncUrl();
+      }
+    } catch {
+      /* 拉不到就保持现状，下一轮事件再试 */
+    }
+    void loadMarks(p);
+  }
+
   function openFile(file: string): void {
     setActiveFile(file);
     setSelectedId(null);
@@ -109,6 +162,11 @@ export default function App() {
   }
 
   onMount(() => {
+    // 注册表通道：项目增删 / 目录里新增设计稿 → 列表自动更新（不需要 F5）
+    const registrySource = new EventSource(registryEventsUrl());
+    registrySource.addEventListener('projects', () => void refreshRegistry());
+    onCleanup(() => registrySource.close());
+
     // 焦点在父页面时也要能：空格临时平移、Ctrl+0/Shift+1 视口快捷键
     const isTyping = (ev: KeyboardEvent): boolean => {
       const el = ev.target as HTMLElement | null;
@@ -163,6 +221,8 @@ export default function App() {
       '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #908030}50%{box-shadow:inset 0 0 0 2px rgba(144,128,48,.35)}}',
       'html{cursor:default;}',
       'html,body{overflow:hidden;}',
+      // 画布背景由父页面注入（CanvasBgSwitch），#fff 为未设置时的兜底
+      'html,body{background:var(--ptr-canvas-bg,#ffffff);}',
     ].join('\n');
     doc.head.appendChild(style);
   }
@@ -288,6 +348,7 @@ export default function App() {
     const doc = frameDoc();
     if (!doc) return;
     ensureFrameStyle();
+    applyCanvasBg();
     viewportCtl?.destroy();
     viewportCtl = bindViewport({
       doc,
@@ -410,12 +471,41 @@ export default function App() {
     }
   }
 
+  // ---------- 界面语言与画布背景（均写入 localStorage；语言默认跟浏览器）----------
+  createEffect(() => {
+    const value = lang();
+    document.documentElement.lang = value === 'zh' ? 'zh-CN' : 'en';
+    rememberLang(value);
+  });
+
+  /// 画布背景：只改舞台与 iframe 文档底色，不动界面其它区域
+  function applyCanvasBg(): void {
+    if (stageEl === undefined) return;
+    // 没有打开设计稿时不接管舞台底色（保持界面本来的米白）
+    if (activeFile() === null) {
+      stageEl.style.removeProperty('--canvas-bg');
+      stageEl.removeAttribute('data-canvas-bg');
+    } else {
+      const color = CANVAS_BG_COLORS[canvasBg()];
+      stageEl.style.setProperty('--canvas-bg', color);
+      stageEl.setAttribute('data-canvas-bg', canvasBg());
+    }
+    frameDoc()?.documentElement.style.setProperty('--ptr-canvas-bg', CANVAS_BG_COLORS[canvasBg()]);
+  }
+
+  createEffect(() => {
+    canvasBg();
+    rememberCanvasBackground(canvasBg());
+    applyCanvasBg();
+  });
+
   // ---------- 预览地址与热重载 ----------
   createEffect(
     on([activeProject, activeFile, reloadKey], () => {
       const p = activeProject();
       const f = activeFile();
       setIframeSrc(p && f ? `${renderUrl(p, f)}&r=${reloadKey()}` : '');
+      applyCanvasBg();
     }),
   );
 
@@ -445,12 +535,12 @@ export default function App() {
         </header>
 
         <section class="section">
-          <h2>项目</h2>
+          <h2>{m().projects}</h2>
           <Show
             when={projects().length > 0}
             fallback={
               <p class="empty">
-                还没有注册项目
+                {m().noProjects}
                 <br />
                 <code>paintress watch &lt;name&gt; &lt;dir&gt;</code>
               </p>
@@ -462,7 +552,7 @@ export default function App() {
                   <li>
                     <button class="item" classList={{ active: activeProject() === p.name }} onClick={() => void openProject(p.name)}>
                       <span class="item-name">{p.name}</span>
-                      <span class="item-meta">{p.fileCount} 个设计稿</span>
+                      <span class="item-meta">{m().projectFiles(p.fileCount)}</span>
                     </button>
                   </li>
                 )}
@@ -474,9 +564,12 @@ export default function App() {
         <Show when={activeProject()}>
           <section class="section files">
             <h2>
-              设计稿 <span class="hint">depth {projects().find((p) => p.name === activeProject())?.depth ?? '-'}</span>
+              {m().designs}{' '}
+              <span class="hint">
+                {m().depth} {projects().find((p) => p.name === activeProject())?.depth ?? '-'}
+              </span>
             </h2>
-            <Show when={files().length > 0} fallback={<p class="empty">没有 .ptr / .pen 文件</p>}>
+            <Show when={files().length > 0} fallback={<p class="empty">{m().noFiles}</p>}>
               <ul class="list">
                 <For each={files()}>
                   {(f) => (
@@ -495,9 +588,9 @@ export default function App() {
         <Show when={marks().length > 0}>
           <section class="section marks">
             <h2>
-              标记
+              {m().marks}
               <button class="ghost tiny" onClick={() => void clearAllMarks()}>
-                清空
+                {m().clear}
               </button>
             </h2>
             <ul class="list">
@@ -520,10 +613,10 @@ export default function App() {
         <footer class="sidebar-foot">
           <label class="toggle">
             <input type="checkbox" checked={live()} onChange={(e) => setLive(e.currentTarget.checked)} />
-            实时刷新
+            {m().liveReload}
           </label>
           <button class="ghost" onClick={() => void loadProjects()}>
-            刷新列表
+            {m().refreshList}
           </button>
           <Show when={daemonInfo().pid}>
             <span class="hint">pid {daemonInfo().pid}</span>
@@ -531,58 +624,72 @@ export default function App() {
         </footer>
       </aside>
 
-      <main class="stage">
+      <main class="stage" ref={(el) => { stageEl = el; }}>
         <Show when={error()}>
           <div class="error">{error()}</div>
         </Show>
-        <Show
-          when={activeProject() !== null && activeFile() !== null}
-          fallback={
-            <div class="placeholder">
-              <Show when={activeProject()} fallback={<p>从左侧选择项目</p>}>
-                <p>从左侧选择一个设计稿</p>
-              </Show>
-            </div>
-          }
-        >
-          <div class="toolbar">
-            <div class="crumbs">
-              <Show when={crumbs().length === 0} fallback={
-                <For each={crumbs()}>
-                  {(c, i) => (
-                    <>
-                      <Show when={i() > 0}>
-                        <span class="sep">/</span>
-                      </Show>
-                      <button class="crumb" classList={{ active: selectedId() === c.id }} onClick={() => focusNodeById(c.id)}>
-                        {c.name ?? c.type}
-                      </button>
-                    </>
-                  )}
-                </For>
-              }>
+        <div class="toolbar">
+          <div class="crumbs">
+            <Show when={crumbs().length === 0} fallback={
+              <For each={crumbs()}>
+                {(c, i) => (
+                  <>
+                    <Show when={i() > 0}>
+                      <span class="sep">/</span>
+                    </Show>
+                    <button class="crumb" classList={{ active: selectedId() === c.id }} onClick={() => focusNodeById(c.id)}>
+                      {c.name ?? c.type}
+                    </button>
+                  </>
+                )}
+              </For>
+            }>
+              <Show when={activeProject() !== null && activeFile() !== null}>
                 <code>
                   {activeProject()}/{activeFile()}
                 </code>
               </Show>
-            </div>
-            <div class="tools">
+            </Show>
+          </div>
+          <div class="tools">
+            <Show when={activeProject() !== null && activeFile() !== null}>
               <span class="hint zoom">{Math.round(zoom() * 100)}%</span>
-              <button class="ghost tiny" title="适应窗口（Shift+1）" onClick={() => viewportCtl?.fitAll()}>
-                适应
+              <button class="ghost tiny" title={m().fitTitle} onClick={() => viewportCtl?.fitAll()}>
+                {m().fit}
               </button>
-              <button class="ghost tiny" title="100%（Ctrl/Cmd+0）" onClick={() => viewportCtl?.zoomToPercent(1)}>
-                1:1
+              <button class="ghost tiny" title={m().actualSizeTitle} onClick={() => viewportCtl?.zoomToPercent(1)}>
+                {m().actualSize}
               </button>
               <button class="ghost" onClick={() => setReloadKey((n) => n + 1)}>
-                重新渲染
+                {m().rerender}
+              </button>
+              <span class="tool-sep" />
+            </Show>
+            <CanvasBgSwitch value={canvasBg()} onChange={setCanvasBg} label={m().canvasBackground} />
+            <div class="lang-switch" role="group" aria-label={m().language} title={m().language}>
+              <button class="lang-opt" classList={{ active: lang() === 'zh' }} onClick={() => setLang('zh')} aria-pressed={lang() === 'zh'}>
+                中
+              </button>
+              <button class="lang-opt" classList={{ active: lang() === 'en' }} onClick={() => setLang('en')} aria-pressed={lang() === 'en'}>
+                EN
               </button>
             </div>
           </div>
+        </div>
+        <Show
+          when={activeProject() !== null && activeFile() !== null}
+          fallback={
+            <div class="placeholder">
+              <Show when={activeProject()} fallback={<p>{m().pickProject}</p>}>
+                <p>{m().pickFile}</p>
+              </Show>
+            </div>
+          }
+        >
           <Show when={boards().length > 1}>
             <div class="boardbar">
               <button class="board" classList={{ active: activeBoard() === null }} onClick={() => focusBoard(null)}>
-                全部
+                {m().allBoards}
               </button>
               <For each={boards()}>
                 {(b) => (

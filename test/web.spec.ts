@@ -210,6 +210,35 @@ describe('idle 自动退出', () => {
   }, 15_000);
 });
 
+describe('注册表 SSE（项目列表自动刷新）', () => {
+  it('无 project 参数 → 订阅后 watch 新项目会推 projects 事件', async () => {
+    const controller = new AbortController();
+    const res = await fetch(`${baseUrl}/events`, { signal: controller.signal });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    // 先订阅，再注册：确保事件是推送而非重放
+    const second = mkdtempSync(join(tmpdir(), 'paintress-proj2-'));
+    try {
+      const watching = sendRequest({ kind: 'watch', project: 'second-proj', dir: second }, 5000);
+      let buf = '';
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline && !buf.includes('event: projects')) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+      }
+      await watching;
+      expect(buf).toContain('event: projects');
+      expect(buf).toContain(': connected'); // 首行注释帧，确认通道已建立
+    } finally {
+      controller.abort();
+      rmSync(second, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('Registry 内部行为', () => {
   it('listDesigns 跳过 node_modules 与隐藏目录', () => {
     const dir = mkdtempSync(join(tmpdir(), 'paintress-scan-'));

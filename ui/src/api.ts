@@ -61,6 +61,11 @@ export function eventsUrl(project: string, file: string): string {
   return `/events?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file)}`;
 }
 
+/** SSE 地址：注册表通道（不传项目）——项目增删、目录里新增设计稿时推 projects 事件 */
+export function registryEventsUrl(): string {
+  return '/events';
+}
+
 export function fetchMarks(project: string): Promise<MarksResponse> {
   return getJson<MarksResponse>(`/api/marks?project=${encodeURIComponent(project)}`);
 }

@@ -164,6 +164,37 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   let idleSince: number | null = null;
   let closing = false;
 
+  /**
+   * 注册表订阅者（浏览器开着的查看器窗口）。
+   * 项目列表变化时推 `projects` 事件，避免用户按 F5 才看到新项目。
+   */
+  const registryClients = new Set<import('node:http').ServerResponse>();
+  const notifyRegistry = (): void => {
+    const payload = JSON.stringify({ projects: registry.all().length, at: Date.now() });
+    for (const res of registryClients) {
+      try {
+        res.write(`event: projects\ndata: ${payload}\n\n`);
+      } catch {
+        registryClients.delete(res);
+      }
+    }
+  };
+
+  /**
+   * 目录监听：项目目录里新增/删除设计稿时也推 projects 事件，
+   * 让「agent 刚创建的文件」在已开着的窗口里自动出现（不靠 F5）。
+   * 合并 150ms：一次批量建多个文件只推一次。
+   */
+  let registryTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleRegistryNotify = (): void => {
+    if (registryTimer !== null) return;
+    registryTimer = setTimeout(() => {
+      registryTimer = null;
+      notifyRegistry();
+    }, 150);
+    registryTimer.unref?.();
+  };
+
   /** 控制面：一个连接可同时作为 agent 存活信号 */
   const handleClient = (socket: Socket): void => {
     const decoder = new LineDecoder();
@@ -205,12 +236,25 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
                 version: VERSION,
               });
               break;
-            case 'watch':
-              reply({ ok: true, watched: true, project: registry.info(registry.watch(req.project, req.dir, req.depth)) });
+            case 'watch': {
+              const entry = registry.watch(req.project, req.dir, req.depth);
+              watchers.watchDesigns(entry.rootReal, entry.depth, scheduleRegistryNotify);
+              reply({ ok: true, watched: true, project: registry.info(entry) });
+              notifyRegistry();
               break;
-            case 'unwatch':
-              reply({ ok: true, unwatched: registry.remove(req.project) });
+            }
+            case 'unwatch': {
+              const before = registry.get(req.project);
+              const removed = registry.remove(req.project);
+              reply({ ok: true, unwatched: removed });
+              if (removed) {
+                if (before && !registry.all().some((p) => p.rootReal === before.rootReal)) {
+                  watchers.unwatchDesigns(before.rootReal);
+                }
+                notifyRegistry();
+              }
               break;
+            }
             case 'attach': {
               const entry = registry.get(req.project);
               if (!entry) throw new Error(`项目未注册：${req.project}`);
@@ -388,6 +432,24 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
       if (segments[0] === 'events') {
         const project = url.searchParams.get('project') ?? '';
         const relPath = url.searchParams.get('path') ?? '';
+
+        // 无 project 参数 = 注册表通道：项目增删时推 projects 事件
+        if (project === '') {
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            connection: 'keep-alive',
+          });
+          res.write(': connected\n\n');
+          registryClients.add(res);
+          const registryKeepAlive = setInterval(() => res.write(': ping\n\n'), 20_000);
+          req.on('close', () => {
+            clearInterval(registryKeepAlive);
+            registryClients.delete(res);
+          });
+          return;
+        }
+
         const entry = registry.get(project);
         if (!entry) {
           send(404, 'project not found', 'text/plain; charset=utf-8');
@@ -595,6 +657,15 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     closing = true;
     if (!opts.quiet) process.stderr.write(`paintress web: 退出（${reason}）\n`);
     clearInterval(idleTimer);
+    if (registryTimer !== null) clearTimeout(registryTimer);
+    for (const client of registryClients) {
+      try {
+        client.end();
+      } catch {
+        /* 已断开 */
+      }
+    }
+    registryClients.clear();
     await watchers.closeAll();
     await new Promise<void>((resolve) => sockServer.close(() => resolve()));
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));

@@ -18,7 +18,8 @@ export interface AutoRegisterResult {
 export async function autoRegister(cwd: string = process.cwd()): Promise<AutoRegisterResult | null> {
   if (process.env['PAINTRESS_NO_AUTO_WEB'] === '1') return null;
   try {
-    const { started } = await ensureDaemon();
+    // idle 放宽到 1h：自动拉起的 daemon 生命周期跟 agent 会话对齐，而不是每次交互都拉起一次
+    const { started } = await ensureDaemon({ idleTimeoutMs: 60 * 60_000 });
     const project = deriveProjectName(cwd);
     const watched = await sendRequest({ kind: 'watch', project, dir: cwd }, 8000);
     if (!watched.ok) throw new Error(watched.error);
