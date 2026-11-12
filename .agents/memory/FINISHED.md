@@ -128,3 +128,12 @@
 - 新增 `ui/src/frame-style.ts` 作为 iframe 样式唯一来源，`test/viewer-style.spec.ts` 用真实 Chromium 约束透明度确实变化。
 - 质量基线：`tsc` 双端 0 错误，**16 文件 228 用例连续两轮全绿**，`pnpm build` 通过（dist 5 文件 148.6 kB、ui 42.3 kB）；查看器实测（Chromium / zh-CN）确认徽章自动出现、2 条长连接计数与关停后进程退出码 0。
 - 证据：`.agents/implementations/2026-11-12_2*_*.md`（首批六条）与 `.agents/implementations/2026-11-13_*review-fixes*.md`（评审修正）。
+
+### 0.5.0 发版排障与 --retag 恢复路径（2026-11-13）
+
+- `v0.5.0` 首推 tag 时 publish 与 ci 同时失败，根因是**测试钩子的时间预算**而不是代码：`viewer-style.spec` 的 `beforeAll` 用 vitest 默认 10s `hookTimeout` 启动 chromium，而 CI runner 上的冷启动实测约 26s（同一次运行里 `shot.spec` 首用例耗时即为此）；钩子超时后 `afterAll` 又对 `undefined` 调 `close()`，把根因盖成 TypeError。
+- 修法：该钩子抬到 60s 并判空；`shot.spec` 6 个用例的 30s 抬到 60s（首启占 26s，余量太薄）。
+- 新增 `pnpm release --retag`：确认版本未上 registry → 跑同一套 gates → 把同名 tag 移到 HEAD 并 force push，用同一版本号重发；已发布版本拒绝移 tag。publish 失败时脚本直接打印这条恢复命令。
+- 结果：tag 落在 `a5b38e8`，publish success（run 43282146161），`paintress@0.5.0` 在 registry 上且带 provenance attestation；本地 17 文件 233 用例全绿。
+- 重复门禁与 CI 成本（publish 重跑同一 SHA 的测试、无 Playwright 缓存）已记入 `FUTURE.md#发布工作流的重复门禁与 runner 成本（2026-11-13）`。
+- 证据：`.agents/implementations/2026-11-13_0242_release-retag-and-hook-timeout.md`。
