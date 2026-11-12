@@ -129,6 +129,12 @@ Rules:
 - Report the resolved path and version (`paintress ping` prints the daemon version when the viewer runs; `npm ls -g --depth=0 paintress` prints the package version).
 - Only when every check is empty do you install (step 1).
 
+If the install succeeded but `command -v paintress` still finds nothing (some version managers need a new shell), call it by full path — do not install a second copy:
+
+```bash
+"$(npm prefix -g)/bin/paintress" doctor
+```
+
 ### 1. Install (only if step 0 found nothing)
 
 ```bash
