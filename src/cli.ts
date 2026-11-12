@@ -50,7 +50,7 @@ export interface ParsedCommand {
   flags: Record<string, string | boolean>;
 }
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run']);
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout']);
 const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run']);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
@@ -201,13 +201,17 @@ export async function main(argv: string[]): Promise<number> {
         throw new Error(`未知客户端：${unknown.join(', ')}（可选：${CLIENTS.map((c) => c.id).join(' / ')}）`);
       }
       const dryRun = cmd === 'doctor' || flags['dry-run'] === true;
+      const layoutFlag = flagStr(flags, 'opencode-layout') ?? 'auto';
+      if (layoutFlag !== 'auto' && layoutFlag !== 'legacy' && layoutFlag !== 'v2') {
+        throw new Error(`--opencode-layout 只接受 auto / legacy / v2，收到：${layoutFlag}`);
+      }
       const results: Record<string, unknown>[] = [];
       for (const id of ids) {
         const spec = findClient(id);
         if (spec === undefined) continue;
         const path = spec.configPath(home, process.platform, process.env);
         const existing = readConfig(path);
-        const plan = planJsonMerge(spec, path, existing, launch);
+        const plan = planJsonMerge(spec, path, existing, launch, { opencodeLayout: layoutFlag });
         if (cmd === 'doctor') {
           results.push({
             client: spec.id,

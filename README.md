@@ -84,8 +84,10 @@ Canvas navigation: wheel zooms at the pointer, space / middle button / empty are
 | Claude Desktop | `~/.config/Claude/claude_desktop_config.json` | `mcpServers` |
 | Cursor | `~/.cursor/mcp.json` | `mcpServers` |
 | VS Code | `~/.config/Code/User/mcp.json` | `servers` (with `"type": "stdio"`) |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
 | Codex | `~/.codex/config.toml` | `[mcp_servers.paintress]` |
 | pi | `~/.pi/agent/mcp.json` | `mcpServers` |
+| OpenCode | `~/.config/opencode/opencode.json` | `mcp.servers` (current) or `mcp` (older; `command` is an array) |
 
 ```bash
 paintress mcp-config cursor   # print the exact snippet instead of editing files
@@ -158,7 +160,9 @@ paintress install --dry-run         # preview the writes
 paintress install <client-id>       # write only the client you are running in
 ```
 
-Client ids: `claude`, `cursor`, `vscode`, `codex`, `pi`. Use `paintress install` without arguments to cover every detected client.
+Client ids: `claude`, `cursor`, `vscode`, `windsurf`, `codex`, `pi`, `opencode`. Use `paintress install` without arguments to cover every detected client.
+
+OpenCode has two config layouts in the wild. `install` follows whatever the existing file already uses and falls back to the current `mcp.servers` shape for a new file; force it with `--opencode-layout legacy` or `--opencode-layout v2`.
 
 What the write does:
 
@@ -168,13 +172,22 @@ What the write does:
 - is idempotent: an identical entry reports `noop` and nothing is written;
 - uses the bare command `paintress` when it resolves on PATH, otherwise the absolute path of the binary.
 
-If the agent you run in is not in that list, print the closest snippet and adapt it:
+### If your client is not in that list
+
+The entry is small and nearly the same everywhere, so adapt it by hand:
+
+1. Find where the client keeps its MCP servers — its own docs, an `/mcp` command, or a "configure MCP servers" menu item.
+2. Match the shape. Most clients use a `mcpServers` object holding `command` + `args`; VS Code uses `servers` with `"type": "stdio"`; OpenCode puts a single `command` **array** under `mcp.servers` (older builds: under `mcp`) with `"type": "local"`; Codex uses a TOML table.
+3. Print the closest snippet and edit it:
 
 ```bash
-paintress mcp-config cursor   # JSON with mcpServers
-paintress mcp-config vscode   # JSON with servers + type: stdio
-paintress mcp-config codex    # TOML table
+paintress mcp-config cursor     # JSON with mcpServers
+paintress mcp-config vscode     # JSON with servers + type: stdio
+paintress mcp-config opencode   # JSON with mcp.servers + command array
+paintress mcp-config codex      # TOML table
 ```
+
+To make a client first-class (so `doctor` and `install` cover it), add one spec to `src/integrations/clients.ts` — `id`, `label`, `format`, `rootPath`, optional `typeValue` / `commandForm` / `extraFields`, and `configPath(home, platform, env)` — plus one test in `test/integrations.spec.ts`. No other file needs to change.
 
 ### 3. Install the skill (recommended)
 

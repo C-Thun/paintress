@@ -4,7 +4,40 @@
  */
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildEntry, tomlSnippet, type ClientSpec, type LaunchCommand } from './clients.js';
+import { buildEntry, resolveRootPath, tomlSnippet, type ClientSpec, type LaunchCommand, type OpenCodeLayout } from './clients.js';
+
+export interface MergeOptions {
+  /** OpenCode 布局：auto 按已有文件判断，legacy/v2 强制指定 */
+  opencodeLayout?: OpenCodeLayout;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 按路径取出 server 表（不存在或类型不对时返回空对象） */
+function readTable(root: Record<string, unknown>, path: string[]): Record<string, unknown> {
+  let cursor: unknown = root;
+  for (const key of path) {
+    if (!isRecord(cursor)) return {};
+    cursor = cursor[key];
+  }
+  return isRecord(cursor) ? { ...cursor } : {};
+}
+
+/** 按路径写回 server 表，沿途缺失的层级补建，其余键原样保留 */
+function writeTable(root: Record<string, unknown>, path: string[], table: Record<string, unknown>): void {
+  let cursor: Record<string, unknown> = root;
+  path.forEach((key, index) => {
+    if (index === path.length - 1) {
+      cursor[key] = table;
+      return;
+    }
+    const next: Record<string, unknown> = isRecord(cursor[key]) ? { ...(cursor[key] as Record<string, unknown>) } : {};
+    cursor[key] = next;
+    cursor = next;
+  });
+}
 
 export type PlanStatus = 'create' | 'update' | 'noop' | 'invalid';
 
@@ -24,6 +57,7 @@ export function planJsonMerge(
   path: string,
   existing: string | null,
   launch: LaunchCommand,
+  options: MergeOptions = {},
 ): InstallPlan {
   const base: InstallPlan = { spec, path, status: 'noop', next: null, detail: '' };
 
@@ -51,19 +85,17 @@ export function planJsonMerge(
     }
   }
 
-  const servers = root[spec.rootKey];
-  const table: Record<string, unknown> =
-    typeof servers === 'object' && servers !== null && !Array.isArray(servers)
-      ? { ...(servers as Record<string, unknown>) }
-      : {};
-  const entry = buildEntry(spec, launch);
+  const rootPath = resolveRootPath(spec, root, options.opencodeLayout ?? 'auto');
+  const layout = spec.id === 'opencode' && rootPath.length === 1 ? 'legacy' : 'v2';
+  const table = readTable(root, rootPath);
+  const entry = buildEntry(spec, launch, layout);
   const current = table['paintress'];
   if (JSON.stringify(current) === JSON.stringify(entry)) {
     return { ...base, status: 'noop', next: JSON.stringify(root, null, 2) + '\n', detail: '条目已是最新' };
   }
   const existed = current !== undefined;
   table['paintress'] = entry;
-  root[spec.rootKey] = table;
+  writeTable(root, rootPath, table);
   return {
     ...base,
     status: existed ? 'update' : existing === null ? 'create' : 'update',

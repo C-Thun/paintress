@@ -9,16 +9,24 @@
 
 import { dirname } from 'node:path';
 
-export type ClientId = 'claude' | 'cursor' | 'vscode' | 'codex' | 'pi';
+export type ClientId = 'claude' | 'cursor' | 'vscode' | 'windsurf' | 'codex' | 'pi' | 'opencode';
+
+/** 条目的命令写法：分开的 command+args，还是合并成 command 数组（OpenCode） */
+export type CommandForm = 'command+args' | 'command-array';
+
+export type OpenCodeLayout = 'auto' | 'legacy' | 'v2';
 
 export interface ClientSpec {
   id: ClientId;
   label: string;
   format: 'json' | 'toml';
-  /** JSON 配置的顶层键：Claude/Cursor/pi 用 mcpServers，VS Code 用 servers */
-  rootKey: string;
-  /** VS Code 的条目需要显式 type: 'stdio' */
-  needsType: boolean;
+  /** JSON 配置里存放 server 表的路径；OpenCode 会按已有文件在两种布局间切换 */
+  rootPath: string[];
+  /** 条目里需要显式写出的 type 值（VS Code: stdio / OpenCode: local） */
+  typeValue?: string;
+  commandForm?: CommandForm;
+  /** 条目里的固定附加字段（OpenCode 旧布局需要 enabled: true） */
+  extraFields?: Record<string, unknown>;
   /** 配置文件绝对路径 */
   configPath(home: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string;
 }
@@ -30,8 +38,7 @@ export const CLIENTS: readonly ClientSpec[] = [
     id: 'claude',
     label: 'Claude Desktop',
     format: 'json',
-    rootKey: 'mcpServers',
-    needsType: false,
+    rootPath: ['mcpServers'],
     configPath: (home, platform, env) => {
       if (platform === 'darwin') return `${posixHome(home)}/Library/Application Support/Claude/claude_desktop_config.json`;
       if (platform === 'win32') return `${env['APPDATA'] ?? posixHome(home)}/Claude/claude_desktop_config.json`;
@@ -42,16 +49,15 @@ export const CLIENTS: readonly ClientSpec[] = [
     id: 'cursor',
     label: 'Cursor',
     format: 'json',
-    rootKey: 'mcpServers',
-    needsType: false,
+    rootPath: ['mcpServers'],
     configPath: (home) => `${posixHome(home)}/.cursor/mcp.json`,
   },
   {
     id: 'vscode',
     label: 'VS Code',
     format: 'json',
-    rootKey: 'servers',
-    needsType: true,
+    rootPath: ['servers'],
+    typeValue: 'stdio',
     configPath: (home, platform, env) => {
       if (platform === 'darwin') return `${posixHome(home)}/Library/Application Support/Code/User/mcp.json`;
       if (platform === 'win32') return `${env['APPDATA'] ?? posixHome(home)}/Code/User/mcp.json`;
@@ -59,20 +65,41 @@ export const CLIENTS: readonly ClientSpec[] = [
     },
   },
   {
+    id: 'windsurf',
+    label: 'Windsurf',
+    format: 'json',
+    rootPath: ['mcpServers'],
+    configPath: (home, platform, env) => {
+      const dir = platform === 'win32' ? (env['USERPROFILE'] ?? posixHome(home)) : posixHome(home);
+      return `${dir}/.codeium/windsurf/mcp_config.json`;
+    },
+  },
+  {
     id: 'codex',
     label: 'Codex',
     format: 'toml',
-    rootKey: 'mcp_servers',
-    needsType: false,
+    rootPath: ['mcp_servers'],
     configPath: (home) => `${posixHome(home)}/.codex/config.toml`,
   },
   {
     id: 'pi',
     label: 'pi',
     format: 'json',
-    rootKey: 'mcpServers',
-    needsType: false,
+    rootPath: ['mcpServers'],
     configPath: (home) => `${posixHome(home)}/.pi/agent/mcp.json`,
+  },
+  {
+    id: 'opencode',
+    label: 'OpenCode',
+    format: 'json',
+    // V2 放在 mcp.servers 下；旧布局直接放在 mcp 下，由 resolveRootPath 按已有文件决定
+    rootPath: ['mcp', 'servers'],
+    typeValue: 'local',
+    commandForm: 'command-array',
+    configPath: (home, _platform, env) => {
+      const base = env['XDG_CONFIG_HOME'] ?? `${posixHome(home)}/.config`;
+      return `${base}/opencode/opencode.json`;
+    },
   },
 ];
 
@@ -140,10 +167,51 @@ export function resolveLaunchCommand(opts: {
   return { command: self, args: ['mcp'] };
 }
 
-/** 单个客户端的配置条目 */
-export function buildEntry(spec: ClientSpec, launch: LaunchCommand): Record<string, unknown> {
-  const base: Record<string, unknown> = { command: launch.command, args: launch.args };
-  return spec.needsType ? { type: 'stdio', ...base } : base;
+/** 单个客户端的配置条目；OpenCode 旧布局还需要 enabled: true */
+export function buildEntry(
+  spec: ClientSpec,
+  launch: LaunchCommand,
+  layout: OpenCodeLayout = 'auto',
+): Record<string, unknown> {
+  const entry: Record<string, unknown> = {};
+  if (spec.typeValue !== undefined) entry['type'] = spec.typeValue;
+  if (spec.commandForm === 'command-array') entry['command'] = [launch.command, ...launch.args];
+  else {
+    entry['command'] = launch.command;
+    entry['args'] = launch.args;
+  }
+  if (spec.extraFields !== undefined) Object.assign(entry, spec.extraFields);
+  if (spec.id === 'opencode' && layout === 'legacy') entry['enabled'] = true;
+  return entry;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 解析 server 表在配置里的路径。
+ *
+ * OpenCode 有两套布局：V2 把 server 放在 `mcp.servers` 下，旧布局直接放在 `mcp` 下。
+ * 已有文件按实际内容判断（避免把条目写到当前版本不读的位置），新文件用官方当前的 V2。
+ */
+export function resolveRootPath(
+  spec: ClientSpec,
+  existingRoot: Record<string, unknown> | null,
+  layout: OpenCodeLayout = 'auto',
+): string[] {
+  if (spec.id !== 'opencode') return spec.rootPath;
+  if (layout === 'legacy') return ['mcp'];
+  if (layout === 'v2') return ['mcp', 'servers'];
+  const mcp = existingRoot?.['mcp'];
+  if (isRecord(mcp)) {
+    if (isRecord(mcp['servers'])) return ['mcp', 'servers'];
+    const looksLikeServers = Object.values(mcp).some(
+      (v) => isRecord(v) && (typeof v['type'] === 'string' || 'command' in v),
+    );
+    if (looksLikeServers) return ['mcp'];
+  }
+  return ['mcp', 'servers'];
 }
 
 /** Codex 用的 TOML 片段（改 TOML 风险高，只输出不写入） */
@@ -153,7 +221,12 @@ export function tomlSnippet(launch: LaunchCommand, name = 'paintress'): string {
   return `[mcp_servers.${name}]\ncommand = ${JSON.stringify(launch.command)}\nargs = [${args}]\n`;
 }
 
-/** JSON 客户端用的片段（含顶层键） */
+/** JSON 客户端用的片段（含嵌套路径，OpenCode 按默认布局） */
 export function jsonSnippet(spec: ClientSpec, launch: LaunchCommand, name = 'paintress'): string {
-  return JSON.stringify({ [spec.rootKey]: { [name]: buildEntry(spec, launch) } }, null, 2);
+  const path = resolveRootPath(spec, null);
+  const entry = buildEntry(spec, launch, path.length === 1 ? 'legacy' : 'v2');
+  const nested: Record<string, unknown> = { [name]: entry };
+  let cursor: Record<string, unknown> = nested;
+  for (const key of [...path].reverse()) cursor = { [key]: cursor };
+  return JSON.stringify(cursor, null, 2);
 }

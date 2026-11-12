@@ -84,8 +84,10 @@ paintress watch demo ./demo
 | Claude Desktop | `~/.config/Claude/claude_desktop_config.json` | `mcpServers` |
 | Cursor | `~/.cursor/mcp.json` | `mcpServers` |
 | VS Code | `~/.config/Code/User/mcp.json` | `servers`（条目需 `"type": "stdio"`） |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` |
 | Codex | `~/.codex/config.toml` | `[mcp_servers.paintress]` |
 | pi | `~/.pi/agent/mcp.json` | `mcpServers` |
+| OpenCode | `~/.config/opencode/opencode.json` | `mcp.servers`（当前版）或 `mcp`（旧版；`command` 是数组） |
 
 ```bash
 paintress mcp-config cursor   # 只打印片段，不改文件
@@ -158,7 +160,9 @@ paintress install --dry-run         # 预览将要写入的内容
 paintress install <client-id>       # 只写当前所在的客户端
 ```
 
-客户端 id：`claude`、`cursor`、`vscode`、`codex`、`pi`。不带参数执行 `paintress install` 会覆盖所有检测到的客户端。
+客户端 id：`claude`、`cursor`、`vscode`、`windsurf`、`codex`、`pi`、`opencode`。不带参数执行 `paintress install` 会覆盖所有检测到的客户端。
+
+OpenCode 现在有两套配置布局：`install` 会跟随文件里既有的布局，新文件按官方当前的 `mcp.servers`；需要强制时用 `--opencode-layout legacy` 或 `--opencode-layout v2`。
 
 写入行为：
 
@@ -168,13 +172,22 @@ paintress install <client-id>       # 只写当前所在的客户端
 - 幂等：条目已一致时返回 `noop`，不写磁盘；
 - 当 `paintress` 能在 PATH 上解析时写裸命令，否则写可执行文件的绝对路径。
 
-如果当前 agent 不在列表里，打印最接近的片段再自行适配：
+### 如果当前 agent 不在列表里
+
+条目很小，各家格式几乎一致，直接照抄改写即可：
+
+1. 先找到该客户端放 MCP server 的位置——查它自己的文档、`/mcp` 命令，或「配置 MCP 服务器」菜单项。
+2. 对照格式：多数是 `mcpServers` 对象，里面 `command` + `args`；VS Code 是 `servers` 加 `"type": "stdio"`；OpenCode 的 `command` 是**数组**，放在 `mcp.servers` 下（旧版放 `mcp` 下）并带 `"type": "local"`；Codex 是 TOML 表。
+3. 打印最接近的片段再改：
 
 ```bash
-paintress mcp-config cursor   # JSON，顶层 mcpServers
-paintress mcp-config vscode   # JSON，顶层 servers + type: stdio
-paintress mcp-config codex    # TOML 表
+paintress mcp-config cursor     # JSON，顶层 mcpServers
+paintress mcp-config vscode     # JSON，顶层 servers + type: stdio
+paintress mcp-config opencode   # JSON，mcp.servers + command 数组
+paintress mcp-config codex      # TOML 表
 ```
+
+想让某个客户端成为内置支持（`doctor`、`install` 都能覆盖），只需在 `src/integrations/clients.ts` 里加一条配置：`id`、`label`、`format`、`rootPath`，以及可选的 `typeValue` / `commandForm` / `extraFields` 和 `configPath(home, platform, env)`，再在 `test/integrations.spec.ts` 加一个测试。其他文件都不用动。
 
 ### 3. 安装 skill（建议）
 

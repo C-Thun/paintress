@@ -18,6 +18,8 @@ const claude = findClient('claude') as ClientSpec;
 const vscode = findClient('vscode') as ClientSpec;
 const codex = findClient('codex') as ClientSpec;
 const PI = findClient('pi') as ClientSpec;
+const windsurf = findClient('windsurf') as ClientSpec;
+const opencode = findClient('opencode') as ClientSpec;
 
 const launch: LaunchCommand = { command: 'paintress', args: ['mcp'] };
 
@@ -51,6 +53,62 @@ describe('客户端检测', () => {
 
   it('目录和文件都不存在时不检测', () => {
     expect(isClientDetected(PI, '/home/u', 'linux', {}, () => false)).toBe(false);
+  });
+});
+
+describe('新增客户端：Windsurf / OpenCode', () => {
+  it('Windsurf 路径与条目形态（与 Cursor 同形）', () => {
+    expect(windsurf.configPath('/home/u', 'linux', {})).toBe('/home/u/.codeium/windsurf/mcp_config.json');
+    expect(windsurf.configPath('C:\\Users\\u', 'win32', { USERPROFILE: 'C:\\Users\\u' })).toBe(
+      'C:\\Users\\u/.codeium/windsurf/mcp_config.json',
+    );
+    expect(buildEntry(windsurf, launch)).toEqual({ command: 'paintress', args: ['mcp'] });
+  });
+
+  it('OpenCode 路径遵循 XDG_CONFIG_HOME', () => {
+    expect(opencode.configPath('/home/u', 'linux', {})).toBe('/home/u/.config/opencode/opencode.json');
+    expect(opencode.configPath('/home/u', 'linux', { XDG_CONFIG_HOME: '/xdg' })).toBe('/xdg/opencode/opencode.json');
+  });
+
+  it('OpenCode 新文件写 V2：mcp.servers，command 是数组', () => {
+    const plan = planJsonMerge(opencode, '/x/opencode.json', null, launch);
+    expect(JSON.parse(plan.next ?? '')).toEqual({
+      mcp: { servers: { paintress: { type: 'local', command: ['paintress', 'mcp'] } } },
+    });
+  });
+
+  it('OpenCode 已有旧布局时跟随旧布局，并写 enabled: true，其他键保留', () => {
+    const existing = JSON.stringify({ mcp: { pencil: { type: 'local', command: ['x'] } }, theme: 'dark' });
+    const parsed = JSON.parse(planJsonMerge(opencode, '/x/o.json', existing, launch).next ?? '');
+    expect(parsed.mcp.paintress).toEqual({ type: 'local', command: ['paintress', 'mcp'], enabled: true });
+    expect(parsed.mcp.pencil).toEqual({ type: 'local', command: ['x'] });
+    expect(parsed.theme).toBe('dark');
+    expect(parsed.mcp.servers).toBeUndefined();
+  });
+
+  it('OpenCode V2 文件里的 timeout 等其他键不丢', () => {
+    const existing = JSON.stringify({ mcp: { timeout: { startup: 1 }, servers: { other: { type: 'local', command: ['y'] } } } });
+    const parsed = JSON.parse(planJsonMerge(opencode, '/x/o.json', existing, launch).next ?? '');
+    expect(parsed.mcp.timeout).toEqual({ startup: 1 });
+    expect(parsed.mcp.servers.other).toEqual({ type: 'local', command: ['y'] });
+    expect(parsed.mcp.servers.paintress.type).toBe('local');
+  });
+
+  it('--opencode-layout 可强制布局，且二次合并为 noop', () => {
+    const v2 = planJsonMerge(opencode, '/x/o.json', JSON.stringify({ mcp: { pencil: { type: 'local' } } }), launch, {
+      opencodeLayout: 'v2',
+    });
+    const once = JSON.parse(v2.next ?? '');
+    expect(once.mcp.servers.paintress).toBeDefined();
+    expect(once.mcp.pencil).toBeDefined();
+    const again = planJsonMerge(opencode, '/x/o.json', v2.next, launch);
+    expect(again.status).toBe('noop');
+  });
+
+  it('OpenCode 的片段按 V2 布局输出', () => {
+    expect(JSON.parse(jsonSnippet(opencode, launch))).toEqual({
+      mcp: { servers: { paintress: { type: 'local', command: ['paintress', 'mcp'] } } },
+    });
   });
 });
 

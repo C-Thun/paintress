@@ -107,3 +107,10 @@
 - 修复客户端检测、dry-run 布尔解析、配置权限保留、TOML 转义/重复表、超大画布缩放下限、Alt 横向滚轮，以及 OIDC 发布工作流的 npm CLI 与手动触发问题。
 - 新增 9 个回归用例；最终 11 文件 170 用例全绿，真实 Chromium 验证通过。
 - 记录与剩余风险：`.agents/implementations/2026-11-12-code-review-fixes.md`。
+
+### 客户端覆盖扩到 7 家（2026-11-12，0.3.0）
+
+- 新增 `windsurf`（`~/.codeium/windsurf/mcp_config.json`）与 `opencode`（`~/.config/opencode/opencode.json`）。
+- OpenCode 双布局（`mcp.servers` 版本 / `mcp` 旧版）按已有文件探测，`--opencode-layout` 可强制；条目模型从 `rootKey`+`needsType` 泛化为 `rootPath` + `typeValue`/`commandForm`/`extraFields`。
+- 双语 README 补「不在列表里怎么接」三步（定位配置 → 对照形状 → 打印片段）与「加一条 spec 即可内置」。
+- 证据：`.agents/implementations/2026-11-12-windsurf-opencode.md`（177 用例全绿 + 真实 opencode 配置合并实测）。
