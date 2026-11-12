@@ -128,7 +128,7 @@ You are an agent asked to install paintress on this machine. Work through the st
 Rules:
 
 - **Any hit means reuse.** Do not install again; go to step 2.
-- Report the resolved path and version (`paintress ping` prints the daemon version when the viewer runs; `npm ls -g --depth=0 paintress` prints the package version).
+- Report the resolved path and version: `paintress --version` prints the package version (or `npm ls -g --depth=0 paintress`).
 - Only when every check is empty do you install (step 1).
 
 If the install succeeded but `command -v paintress` still finds nothing (some version managers need a new shell), call it by full path — do not install a second copy:

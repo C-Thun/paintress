@@ -128,7 +128,7 @@ MIT
 规则：
 
 - **命中任意一项就复用**，不要重装，直接进入第 2 步。
-- 向用户报告解析到的路径与版本（查看器运行时 `paintress ping` 会打印版本；包版本用 `npm ls -g --depth=0 paintress`）。
+- 向用户报告解析到的路径与版本：`paintress --version` 打印包版本（或用 `npm ls -g --depth=0 paintress`）。
 - 只有在全部检查都为空时，才执行第 1 步。
 
 如果安装成功但 `command -v paintress` 仍然找不到（某些版本管理器需要新开 shell），用完整路径调用，**不要因此再装一份**：

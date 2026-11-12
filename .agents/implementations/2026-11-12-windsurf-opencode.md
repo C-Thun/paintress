@@ -37,3 +37,19 @@
 - OpenCode 新文件默认写 V2（官方当前文档）；旧版用户需 `--opencode-layout legacy`，README 已写明。
 - Windsurf 已于 2026-06 更名 Devin Desktop，配置目录仍是 `~/.codeium/windsurf`，路径未变。
 - Claude Code（项目级 `.mcp.json`，写入当前目录属行为变更）与 Zed（嵌套 `context_servers`）仍未内置，README 的通用指引覆盖它们。
+
+## 追加：0.3.1 发版修复（同批）
+
+首次发布 0.3.0 时 CI 打出一条被忽略的警告：
+
+```text
+npm warn publish "bin[paintress]" script name dist/cli.js was invalid and removed
+```
+
+npm 11 起 `bin` 值不允许 `./` 前缀：publish 时会被「自动纠正」（manifest 里存成 `dist/cli.js`，本地却写着 `./dist/cli.js`），并每次发版都告警。实测 0.3.0 装出来的 `bin` 仍可用（npm 是把值规范化而非真的删除），但本地与 registry 的清单不一致，属隐患。
+
+- `package.json`：`"paintress": "./dist/cli.js"` → `"dist/cli.js"`。
+- `scripts/verify-package.mjs`：`bin` 带 `./` 直接判失败，防止回归。
+- 顺带补 `paintress --version` / `-v` / `version`（此前会落到「缺少 <file> 参数」，agent 探测版本时踩空）。
+- README 双语安装手册的版本探测改为 `paintress --version`。
+- 验证：178 用例全绿；`verify:pkg` 通过；三个版本入口都打印 `paintress 0.3.1`。

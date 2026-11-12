@@ -40,7 +40,10 @@ for (const [key, value] of Object.entries(pkg.exports ?? {})) {
   if (typeof target === 'string') check(target.replace(/^\.\//, ''), `exports["${key}"]`);
 }
 for (const [bin, target] of Object.entries(pkg.bin ?? {})) {
-  check(String(target).replace(/^\.\//, ''), `bin:${bin}`);
+  const raw = String(target);
+  // npm 11 起会把带 ./ 的 bin 当无效值改写，并在 publish 时打 warning，这里直接拦住
+  if (raw.startsWith('./')) errors.push(`bin:${bin} 不要带 ./ 前缀（npm 发布时会改写该值）：${raw}`);
+  check(raw.replace(/^\.\//, ''), `bin:${bin}`);
 }
 
 // 2) 前端产物：daemon 按 dist/../ui/dist 定位，不在包里就只能降级

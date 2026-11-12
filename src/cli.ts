@@ -16,6 +16,7 @@ import {
   type LaunchCommand,
 } from './integrations/clients.js';
 import { applyPlan, planJsonMerge, readConfig } from './integrations/install.js';
+import { VERSION } from './shared/version.js';
 
 /**
  * paintress CLI —— 与 MCP 共享同一套工具 handler。
@@ -120,9 +121,13 @@ async function call(tool: string, args: Record<string, unknown>): Promise<ToolOu
 
 /** 入口：返回退出码（可单测） */
 export async function main(argv: string[]): Promise<number> {
+  if (argv[0] === '--version' || argv[0] === '-v' || argv[0] === 'version') {
+    console.log(`paintress ${VERSION}`);
+    return 0;
+  }
   const parsed = parseArgv(argv);
   if (!parsed) {
-    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|info|query|get|update|insert|delete|move|batch|render|shot|validate|install|doctor|mcp-config> ...');
+    console.error('用法：paintress <mcp|web|ping|status|watch|unwatch|attach|stop|info|query|get|update|insert|delete|move|batch|render|shot|validate|install|doctor|mcp-config> ...（版本：paintress --version）');
     return 2;
   }
   const { cmd, positionals, flags } = parsed;

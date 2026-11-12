@@ -5,6 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isDirectExecution, parseArgv, main } from '../src/cli.js';
 
+describe('版本输出', () => {
+  it('--version / -v / version 都打印包版本', async () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+    for (const arg of ['--version', '-v', 'version']) {
+      const out: string[] = [];
+      const log = vi.spyOn(console, 'log').mockImplementation((v: unknown) => void out.push(String(v)));
+      const code = await main([arg]);
+      log.mockRestore();
+      expect(code).toBe(0);
+      expect(out.join('')).toBe(`paintress ${pkg.version}`);
+    }
+  });
+});
+
 describe('parseArgv', () => {
   it('子命令 + 位置参数', () => {
     expect(parseArgv(['get', 'a.pen', 'title'])).toEqual({
