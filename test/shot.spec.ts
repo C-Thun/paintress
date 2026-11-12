@@ -45,6 +45,13 @@ describe('画板选择子（纯函数）', () => {
   });
 });
 
+/**
+ * 每个截图用例都要**启动一个 chromium**；CI runner 上的首次启动是冷启动
+ * （下载解包后磁盘缓存为空），2026-11-12 实测约 26s。默认 5s / 旧的 30s 预算太紧，
+ * 给到 60s：这只抬高「卡住」的上限，不改变用例自身的等待逻辑。
+ */
+const BROWSER_TIMEOUT_MS = 60_000;
+
 const hasBrowser = findBrowser() !== null;
 const d = describe;
 if (!hasBrowser) {
@@ -77,13 +84,13 @@ if (!hasBrowser) {
       expect(buf[1]).toBe(0x50);
       expect(buf[2]).toBe(0x4e);
       expect(buf[3]).toBe(0x47);
-    }, 30_000);
+    }, BROWSER_TIMEOUT_MS);
 
     it('scale=1 时产物更小', async () => {
       const png1 = join(tmp, 'out1.png');
       await screenshotPen(penFile, png1, { scale: 1, settleMs: 200 });
       expect(readFileSync(png1).length).toBeLessThan(readFileSync(pngFile).length);
-    }, 30_000);
+    }, BROWSER_TIMEOUT_MS);
 
     it('按画板 id 截图：产物尺寸 = 画板尺寸 × scale', async () => {
       const out = join(tmp, 'board-detail.png');
@@ -91,26 +98,26 @@ if (!hasBrowser) {
       expect(res.board).toEqual({ id: 'detail', name: '详情', x: 900, y: 0, width: 400, height: 300 });
       expect(res.canvas).toEqual({ width: 1300, height: 600 }); // 整张画布仍是三个画板的并集
       expect(pngSize(readFileSync(out))).toEqual({ width: 400, height: 300 });
-    }, 30_000);
+    }, BROWSER_TIMEOUT_MS);
 
     it('按画板 name 截图（中文）', async () => {
       const out = join(tmp, 'board-home.png');
       const res = await screenshotPen(boardsPen, out, { board: '首页', scale: 1, settleMs: 200 });
       expect(res.board?.id).toBe('home');
       expect(pngSize(readFileSync(out))).toEqual({ width: 800, height: 600 });
-    }, 30_000);
+    }, BROWSER_TIMEOUT_MS);
 
     it('未命名画板用 id 选中', async () => {
       const out = join(tmp, 'board-ghost.png');
       const res = await screenshotPen(boardsPen, out, { board: 'ghost', scale: 2, settleMs: 200 });
       expect(res.board).toMatchObject({ id: 'ghost', width: 200, height: 200 });
       expect(pngSize(readFileSync(out))).toEqual({ width: 400, height: 400 }); // 2x
-    }, 30_000);
+    }, BROWSER_TIMEOUT_MS);
 
     it('画板名歧义时报错，不产出文件', async () => {
       const out = join(tmp, 'board-ambiguous.png');
       await expect(screenshotPen(boardsPen, out, { board: 'o', settleMs: 200 })).rejects.toThrow(/命中/);
       expect(existsSync(out)).toBe(false);
-    }, 30_000);
+    }, BROWSER_TIMEOUT_MS);
   });
 }

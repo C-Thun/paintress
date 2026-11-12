@@ -23,6 +23,13 @@
  *   pnpm release patch --no-wait    # 推完就返回，不盯 CI
  *   pnpm release patch --allow-branch   # 允许在非默认分支上发（应急）
  *   pnpm release patch --local      # 应急：本机直接 npm publish（需 token）
+ *   pnpm release --retag            # 恢复：把「tag 已推、版本没发出去」的 tag 移到当前提交重发
+ *
+ * 恢复路径（--retag）：
+ *   CI 在 tag 上失败时，tag 已经推上去了，而版本号写死在 tag 里 ——
+ *   正常发版无法「同版本再发一次」。修好失败的提交后跑 `pnpm release --retag`：
+ *   它确认该版本尚未上 registry → 跑同一套 gates → 把 tag 移到当前 HEAD 并 force push。
+ *   已发布到 registry 的版本会被拒绝移 tag（那种情况只能发新版本）。
  *
  * 注意：`--local` 绕过了 CI 的 tag 校验与 provenance，只在 CI 不可用时使用；
  * 2027-01 起绕过 2FA 的 granular token 失效，届时必须回到 tag + CI 路径。
@@ -35,7 +42,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PKG_PATH = join(ROOT, 'package.json');
 const BUMPS = ['major', 'minor', 'patch'];
-const FLAGS = new Set(['--dry-run', '--prepare-only', '--no-wait', '--allow-branch', '--local']);
+const FLAGS = new Set(['--dry-run', '--prepare-only', '--no-wait', '--allow-branch', '--local', '--retag']);
 
 const C = {
   reset: '\x1b[0m',
@@ -83,14 +90,22 @@ function run(cmd, args, { capture = false, allowFail = false } = {}) {
   return { status: res.status, stdout: (res.stdout || '').trim(), stderr: (res.stderr || '').trim() };
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const positional = argv.filter((arg) => !arg.startsWith('--'));
   const flags = new Set(argv.filter((arg) => arg.startsWith('--')));
   for (const flag of flags) {
     if (!FLAGS.has(flag)) throw new Abort(`未知参数：${flag}（可用：${[...FLAGS].join(' ')}）`);
   }
+  if (flags.has('--retag')) {
+    // --retag 不发新版：版本号取自当前 package.json，所以接受版本位只会误导
+    if (positional.length !== 0) {
+      throw new Abort('--retag 不接受版本位：它不 bump 版本，只把「已推送、未发布」的 tag 移到当前提交');
+    }
+    if (flags.has('--local')) throw new Abort('--retag 不能和 --local 同时用（--local 绕过 tag，没有可重打的 tag）');
+    return { bump: null, flags };
+  }
   if (positional.length !== 1 || !BUMPS.includes(positional[0])) {
-    throw new Abort(`用法：pnpm release <${BUMPS.join('|')}> [--dry-run] [--prepare-only] [--no-wait] [--local]`);
+    throw new Abort(`用法：pnpm release <${BUMPS.join('|')}> [--dry-run] [--prepare-only] [--no-wait] [--local] [--allow-branch] 或 pnpm release --retag`);
   }
   return { bump: positional[0], flags };
 }
@@ -223,7 +238,11 @@ async function waitForPublish({ name, version, repo, sha }) {
     }
     run = (await findPublishRun(repo, sha)) ?? run;
     if (run && BAD_CONCLUSIONS.has(run.conclusion)) {
-      throw new Abort(`CI 发布失败（${run.conclusion}）：${run.html_url}`);
+      throw new Abort(
+        `CI 发布失败（${run.conclusion}）：${run.html_url}\n` +
+          `tag v${version} 已经推上去了、版本号也写死在 tag 里；修好导致失败的那个提交后，\n` +
+          `跑 \`pnpm release --retag\` 把 v${version} 移到新的 HEAD 重发（版本号不变）。`,
+      );
     }
     const elapsed = Date.now() - started;
     if (elapsed >= timeoutMs) {
@@ -239,14 +258,109 @@ async function waitForPublish({ name, version, repo, sha }) {
   }
 }
 
+/**
+ * 恢复路径：tag 已经推上去、CI 跑过了但版本没发布成功时用。
+ * 不发新版 —— 只把同名 tag 移到当前提交并 force push，让 CI 用**同一版本号**重跑。
+ * 前置：该版本在 registry 上不存在（已发布的版本绝不允许移 tag）。
+ */
+async function retagRelease({ name, version, repo, flags, dryRun }) {
+  const tag = `v${version}`;
+  console.log(`\n${paint(C.bold, `${name} 重打 tag`)}  ${tag}（版本不变 ${version}）`);
+  if (dryRun) {
+    console.log(`\n${paint(C.yellow, '--dry-run：只打印计划，不做任何改动')}`);
+    note(`会确认 ${name}@${version} 尚未发布、tag ${tag} 存在`);
+    for (const [label] of GATES) note(`会执行 ${label}`);
+    note(`会把 tag ${tag} 移到当前 HEAD 并 force push，触发 CI 用同一版本号重发`);
+    return;
+  }
+
+  step('检查前置条件（--retag）');
+  assertClean();
+  ok('工作区干净');
+  const branch = currentBranch();
+  const base = defaultBranch();
+  if (branch !== base) {
+    if (!flags.has('--allow-branch')) {
+      throw new Abort(`当前分支 ${branch} 不是默认分支 ${base}（确需如此加 --allow-branch）`);
+    }
+    warn(`在非默认分支 ${branch} 上重打 tag`);
+  } else {
+    ok(`分支 ${branch}`);
+  }
+  if (await publishedOnNpm(name, version)) {
+    throw new Abort(`${name}@${version} 已经在 npm 上 —— 已发布的 tag 不允许移动（要发新版请用 pnpm release <bump>）`);
+  }
+  ok(`registry 上还没有 ${version}（允许移 tag）`);
+
+  if (tagExists(tag) === null) {
+    throw new Abort(`本地与远端都没有 tag ${tag}，没有可重打的 tag；正常发版请用 pnpm release <bump>`);
+  }
+  // 远端有、本地没有时先拉回来，否则算不出 tag 落在哪个提交
+  if (run('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], { capture: true, allowFail: true }).status !== 0) {
+    run('git', ['fetch', 'origin', '--tags', '--force'], { capture: true });
+  }
+  const head = gitOutput(['rev-parse', 'HEAD']);
+  const ahead = gitOutput(['rev-list', '--count', `${tag}..HEAD`]);
+  note(`tag ${tag} → ${gitOutput(['rev-list', '-n', '1', tag]).slice(0, 7)}，HEAD → ${head.slice(0, 7)}（相隔 ${ahead} 个提交）`);
+  if (Number(ahead) === 0) {
+    warn('HEAD 与 tag 指向同一个提交：重打不改变任何东西，CI 大概率因同一原因再次失败');
+  } else {
+    for (const line of gitOutput(['log', '--oneline', '--no-decorate', `${tag}..HEAD`]).split('\n')) note(line);
+  }
+
+  runGates();
+
+  step(`把 tag ${tag} 移到当前提交`);
+  run('git', ['tag', '-d', tag], { allowFail: true });
+  run('git', ['tag', '-a', tag, '-m', `${name} ${tag}`]);
+  ok(`本地 tag ${tag} 已指向 ${head.slice(0, 7)}`);
+
+  if (flags.has('--prepare-only')) {
+    console.log(`\n${paint(C.yellow, '--prepare-only：已停在本地，推上去才重发：')}`);
+    console.log(`  git push --force origin refs/tags/${tag}`);
+    return;
+  }
+
+  step('推送触发 CI（force 覆盖远端 tag）');
+  run('git', ['push', 'origin', branch]);
+  run('git', ['push', '--force', 'origin', `refs/tags/${tag}`]);
+  ok(`tag ${tag} 已 force 推送，CI 开始重发`);
+
+  await finishPublish({ name, version, repo, sha: head, flags });
+}
+
+/** 推完之后的共同尾巴：盯 CI → 确认 registry → 报 provenance */
+async function finishPublish({ name, version, repo, sha, flags }) {
+  if (flags.has('--no-wait')) {
+    console.log(`\n${paint(C.yellow, '--no-wait：不盯 CI。稍后自行确认：')}`);
+    console.log(`  npm view ${name}@${version} version`);
+    return;
+  }
+
+  const { run: workflow } = await waitForPublish({ name, version, repo, sha });
+  console.log(`\n${paint(C.green, `发布完成：${name}@${version}`)}`);
+  if (workflow?.html_url) note(`CI：${workflow.html_url}`);
+  const attestations = await fetch(`https://registry.npmjs.org/${name}/${version}`, { headers: { accept: 'application/json' } })
+    .then((res) => (res.ok ? res.json() : null))
+    .catch(() => null);
+  if (attestations?.dist?.attestations) ok('provenance attestation 存在');
+  else warn('registry 上暂未看到 provenance attestation（可能在索引中，稍后复核）');
+}
+
 async function main() {
   const { bump, flags } = parseArgs(process.argv.slice(2));
   const { raw, version } = readVersion();
-  const next = nextVersion(version, bump);
-  const tag = `v${next}`;
   const name = parseJson(raw, 'package.json').name;
   const repo = parseRepo();
   const dryRun = flags.has('--dry-run');
+
+  if (flags.has('--retag')) {
+    await retagRelease({ name, version, repo, flags, dryRun });
+    return;
+  }
+
+  const next = nextVersion(version, bump);
+  const tag = `v${next}`;
 
   console.log(`\n${paint(C.bold, `${name} 发版`)}  ${version} → ${paint(C.bold, next)}  （tag ${tag}）`);
   if (dryRun) {
@@ -306,22 +420,7 @@ async function main() {
   run('git', ['push', 'origin', tag]);
   ok('tag 已推送，CI 开始发布');
 
-  const sha = gitOutput(['rev-parse', 'HEAD']);
-
-  if (flags.has('--no-wait')) {
-    console.log(`\n${paint(C.yellow, '--no-wait：不盯 CI。稍后自行确认：')}`);
-    console.log(`  npm view ${name}@${next} version`);
-    return;
-  }
-
-  const { run: workflow } = await waitForPublish({ name, version: next, repo, sha });
-  console.log(`\n${paint(C.green, `发布完成：${name}@${next}`)}`);
-  if (workflow?.html_url) note(`CI：${workflow.html_url}`);
-  const attestations = await fetch(`https://registry.npmjs.org/${name}/${next}`, { headers: { accept: 'application/json' } })
-    .then((res) => (res.ok ? res.json() : null))
-    .catch(() => null);
-  if (attestations?.dist?.attestations) ok('provenance attestation 存在');
-  else warn('registry 上暂未看到 provenance attestation（可能在索引中，稍后复核）');
+  await finishPublish({ name, version: next, repo, sha: gitOutput(['rev-parse', 'HEAD']), flags });
 }
 
 const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
