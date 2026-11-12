@@ -5,5 +5,5 @@ export {
   type CSSDecl,
 } from './style.js';
 export { getLucideIcon } from './icons.js';
-export { computeCanvas, renderTree, escapeHtml, escapeAttr } from './html.js';
+export { computeCanvas, renderTree, escapeHtml, escapeAttr, boardBoxes, type BoardBox } from './html.js';
 export { renderDocument, type RenderResult, type RenderOptions } from './entry.js';

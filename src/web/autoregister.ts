@@ -21,7 +21,7 @@ export async function autoRegister(cwd: string = process.cwd()): Promise<AutoReg
     // idle 放宽到 1h：自动拉起的 daemon 生命周期跟 agent 会话对齐，而不是每次交互都拉起一次
     const { started } = await ensureDaemon({ idleTimeoutMs: 60 * 60_000 });
     const project = deriveProjectName(cwd);
-    const watched = await sendRequest({ kind: 'watch', project, dir: cwd }, 8000);
+    const watched = await sendRequest({ kind: 'watch', project, dir: cwd, owner: 'agent' }, 8000);
     if (!watched.ok) throw new Error(watched.error);
     const handle = await attachPersistent(project);
     return { handle, project, startedDaemon: started };

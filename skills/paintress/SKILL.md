@@ -37,7 +37,7 @@ If either prints something, **do not install again**. Use the existing binary. `
 | `paintress_batch` | several operations in one call |
 | `paintress_validate` | check the document against the format spec |
 | `paintress_render` | write the canvas as a standalone HTML file |
-| `paintress_screenshot` | render to PNG (headless Chromium) |
+| `paintress_screenshot` | render to PNG (headless Chromium); pass `board` (id or name) to capture one board instead of the whole canvas |
 | `paintress_marks` | read the user's click markers (`#1 → node id`) |
 
 ## Working rules
@@ -47,7 +47,7 @@ If either prints something, **do not install again**. Use the existing binary. `
 3. **`#N` means a marker.** When the user writes `#1`, call `paintress_marks` and map `#1` to a real node id. Markers are per viewer session.
 4. **Top-level nodes are boards.** Use `paintress_doc_info` to list them before guessing what "the second screen" means.
 5. **After a batch, validate.** `paintress_validate` catches structural mistakes before the user opens the file.
-6. **Screenshots are for you.** `paintress_screenshot` is how you look at the design; the HTML viewer is for the human.
+6. **Screenshots are for you.** `paintress_screenshot` is how you look at the design; the HTML viewer is for the human. When a document has several boards, pass `board` to get just that page — an ambiguous name errors out and lists the candidates rather than guessing.
 
 ## Node fields worth knowing
 

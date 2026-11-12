@@ -14,12 +14,23 @@ export interface ProjectInfo {
   lastAccess: number;
 }
 
-export interface ProjectsResponse {
+export interface DaemonInfo {
+  pid?: number;
+  version?: string;
+  /** npm 上的最新版本号（daemon 后台探测；离线/未开启时为 null） */
+  latest?: string | null;
+  /** agent attach + 设计稿 SSE + 项目列表 SSE 的长连接总数 */
+  connections?: number;
+}
+
+export interface ProjectsResponse extends DaemonInfo {
   ok: boolean;
   projects: ProjectInfo[];
-  pid?: number;
   uptimeMs?: number;
-  version?: string;
+}
+
+export interface DaemonInfoResponse extends DaemonInfo {
+  ok: boolean;
 }
 
 export interface FilesResponse {
@@ -45,6 +56,11 @@ async function getJson<T>(url: string): Promise<T> {
 
 export function fetchProjects(): Promise<ProjectsResponse> {
   return getJson<ProjectsResponse>('/api/projects');
+}
+
+/** 轻量轮询：只取版本与连接数，不触发项目目录扫描 */
+export function fetchDaemonInfo(): Promise<DaemonInfoResponse> {
+  return getJson<DaemonInfoResponse>('/api/version');
 }
 
 export function fetchFiles(project: string): Promise<FilesResponse> {
@@ -87,6 +103,24 @@ export async function clearMarks(project: string): Promise<number> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = (await res.json()) as { ok: boolean; cleared: number };
   return body.cleared;
+}
+
+/** 破坏性写接口：daemon 要求自定义头 `x-paintress: 1`（跨站请求会触发预检，daemon 不应答预检） */
+const WRITE_HEADERS = { 'x-paintress': '1' };
+
+export async function unwatchProject(name: string): Promise<boolean> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE', headers: WRITE_HEADERS });
+  const body = (await res.json()) as { ok: boolean; unwatched?: boolean; error?: string };
+  if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body.unwatched === true;
+}
+
+/** 关掉 daemon；返回 daemon 报告的连接数（用于二次确认文案） */
+export async function shutdownDaemon(): Promise<number> {
+  const res = await fetch('/api/shutdown', { method: 'POST', headers: WRITE_HEADERS });
+  const body = (await res.json()) as { ok: boolean; connections?: number; error?: string };
+  if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body.connections ?? 0;
 }
 
 export interface ChangesResponse {

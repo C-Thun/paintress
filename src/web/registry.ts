@@ -19,6 +19,12 @@ export interface ProjectEntry {
   agents: Set<symbol>;
   /** 浏览器 SSE 连接 */
   browsers: Set<symbol>;
+  /**
+   * 谁注册的：`agent` = MCP 自动注册（连接归零后可由 daemon 自动退场）；
+   * `manual` = 人显式 watch（人显式绑的，只能人显式解）。
+   * 手动 watch 永远覆盖自动标记，反向不成立。
+   */
+  owner: 'agent' | 'manual';
   lastAccess: number;
   createdAt: number;
 }
@@ -40,7 +46,12 @@ export class Registry {
   private readonly projects = new Map<string, ProjectEntry>();
 
   /** 注册（或复用）项目目录；同名不同目录视为冲突。depth 默认 3、上限 6 */
-  watch(projectNameRaw: string, dir: string, depth?: number): ProjectEntry {
+  watch(
+    projectNameRaw: string,
+    dir: string,
+    depth?: number,
+    opts: { owner?: ProjectEntry['owner'] } = {},
+  ): ProjectEntry {
     const name = sanitizeProjectName(projectNameRaw);
     const { root, rootReal } = resolveProjectDir(dir);
     const wanted = clampDepth(depth);
@@ -51,6 +62,8 @@ export class Registry {
       }
       if (depth !== undefined) existing.depth = wanted;
       existing.lastAccess = Date.now();
+      // 手动 watch 覆盖自动标记；自动注册不动已存在的手动项目
+      if (opts.owner === 'manual') existing.owner = 'manual';
       return existing;
     }
     const entry: ProjectEntry = {
@@ -60,6 +73,7 @@ export class Registry {
       depth: wanted,
       agents: new Set(),
       browsers: new Set(),
+      owner: opts.owner ?? 'manual',
       lastAccess: Date.now(),
       createdAt: Date.now(),
     };

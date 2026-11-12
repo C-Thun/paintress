@@ -328,19 +328,30 @@ export const TOOLS: Record<string, ToolDef> = {
   },
 
   paintress_screenshot: {
-    description: '渲染并截图为 PNG（默认 2x）；需要本机 Chromium/Chrome 或 PTR_BROWSER 指向的可执行文件',
+    description:
+      '渲染并截图为 PNG（默认 2x）；需要本机 Chromium/Chrome 或 PTR_BROWSER 指向的可执行文件。指定 board 时只截该画板（顶层 frame，即“一页”），而不是整张画布',
     inputSchema: {
       path: z.string(),
       out: z.string().describe('输出 .png 路径'),
       scale: z.number().int().min(1).max(4).optional().describe('像素倍率，默认 2'),
+      board: z.string().optional().describe('只截某个画板：id 或 name；模糊命中多个时会报错并列出候选'),
     },
     run: async (a) => {
       const browser = findBrowser();
       if (!browser) throw new Error('未找到可用浏览器：安装 Chromium/Chrome，或设置 PTR_BROWSER');
+      const board = typeof a['board'] === 'string' ? a['board'] : '';
       const res = await screenshotPen(reqStr(a, 'path'), reqStr(a, 'out'), {
         ...(typeof a['scale'] === 'number' ? { scale: a['scale'] as number } : {}),
+        ...(board !== '' ? { board } : {}),
       });
-      return { ok: true, out: res.out, canvas: res.canvas, browser: res.browser, warnings: res.warnings };
+      return {
+        ok: true,
+        out: res.out,
+        canvas: res.canvas,
+        ...(res.board !== undefined ? { board: res.board } : {}),
+        browser: res.browser,
+        warnings: res.warnings,
+      };
     },
   },
 

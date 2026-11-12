@@ -329,6 +329,34 @@ export function computeCanvas(nodes: PenNode[], vars: VarResolver): { width: num
   return { width: Math.max(1, Math.ceil(maxW)), height: Math.max(1, Math.ceil(maxH)) };
 }
 
+/** 画板包围盒（顶层节点）：供「只截某个画板」选择与裁剪使用 */
+export interface BoardBox {
+  id: string;
+  name?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function boardBoxes(nodes: PenNode[], vars: VarResolver): BoardBox[] {
+  const out: BoardBox[] = [];
+  for (const n of nodes) {
+    if (!isRecord(n)) continue;
+    const box = nodeBox(n, vars);
+    const name = typeof n['name'] === 'string' && n['name'] !== '' ? n['name'] : undefined;
+    out.push({
+      id: typeof n['id'] === 'string' ? n['id'] : '',
+      ...(name !== undefined ? { name } : {}),
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+    });
+  }
+  return out;
+}
+
 /** 渲染整棵（已展开的）树：顶层节点在画布上绝对定位，并带画布元数据 */
 export function renderTree(nodes: PenNode[], vars: VarResolver, warnings: Warnings): string {
   return nodes.filter(isRecord).map((n) => renderNode(n, 'none', vars, warnings, boardAttrs(n, vars))).join('');

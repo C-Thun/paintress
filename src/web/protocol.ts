@@ -5,7 +5,7 @@ import type { Mark } from './marks.js';
 export type ClientRequest =
   | { kind: 'ping' }
   | { kind: 'status' }
-  | { kind: 'watch'; project: string; dir: string; depth?: number }
+  | { kind: 'watch'; project: string; dir: string; depth?: number; owner?: 'agent' | 'manual' }
   | { kind: 'unwatch'; project: string }
   | { kind: 'attach'; project: string }
   | { kind: 'detach'; project: string }

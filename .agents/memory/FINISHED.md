@@ -115,3 +115,16 @@
 - 双语 README 补「不在列表里怎么接」三步（定位配置 → 对照形状 → 打印片段）与「加一条 spec 即可内置」。
 - `0.3.1` 修掉 npm 11 的 `bin` 前缀陷阱（`./dist/cli.js` 会被规范化并每次发版告警）并补 `paintress --version`。
 - 证据：`.agents/implementations/2026-11-12-windsurf-opencode.md`（178 用例全绿 + 真实 opencode 配置合并实测 + 从 registry 全新安装验证）。
+
+### 首批六项（2026-11-12）
+
+- 变更通知测试：捕获真实通知 Promise 后用 `until()` 轮询；按本次新生成的节点 id 断言，不再受 1.5s 合并窗口导致的数组长度变化影响。
+- 变更高亮：**线宽保持 2px**（1px 会与设计本身的描边混淆，operator 2026-11-12 裁决），1.4s × 3 轮脉动改为 2s 无限透明度往返（100% ↔ 25%），并加 `prefers-reduced-motion` 关动画。
+- 项目解绑线：`ProjectEntry` 增 `owner`（agent / manual）；agent 自动注册的项目在最后一条 attach 断开、且无浏览器 SSE 时宽限 45s 后退场；`DELETE /api/projects/:name` + 项目行悬停 ×；`POST /api/shutdown` + 侧栏「关闭服务器」。破坏性接口要求 `x-paintress: 1` 头（跨站请求会触发预检，daemon 不应答预检）。
+- 画板级截图：`RenderResult` 增 `boards`（顶层包围盒）；`paintress_screenshot { board }` / `shot --board`，匹配 id → name → 模糊，多命中报歧义并列候选，不猜。
+- 版本升级提示：`src/web/update-check.ts` 查 npm latest（成功缓存 6h / 失败 10min，后台刷新永不阻塞、失败静默；`updateCheck` 默认关、CLI 开启）；徽章变上下两层（下层锈红加粗），点击弹窗给可复制提示词 + GitHub。
+- 新增 `ui/src/confirm.tsx`：`Modal`（壳）+ `Confirm`（危险动作），解绑与关停两处复用。
+- 评审补强（2026-11-13）：移除高亮 `box-shadow` 的 `!important`（它会使透明度关键帧失效）；关停时结束 agent/socket 与 SSE 活跃连接并准确计数；新增轻量 `/api/version` 轮询让首次后台探测结果自动出现；`shot --board` 缺值改为明确报错。
+- 新增 `ui/src/frame-style.ts` 作为 iframe 样式唯一来源，`test/viewer-style.spec.ts` 用真实 Chromium 约束透明度确实变化。
+- 质量基线：`tsc` 双端 0 错误，**16 文件 228 用例连续两轮全绿**，`pnpm build` 通过（dist 5 文件 148.6 kB、ui 42.3 kB）；查看器实测（Chromium / zh-CN）确认徽章自动出现、2 条长连接计数与关停后进程退出码 0。
+- 证据：`.agents/implementations/2026-11-12_2*_*.md`（首批六条）与 `.agents/implementations/2026-11-13_*review-fixes*.md`（评审修正）。

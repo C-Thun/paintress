@@ -109,6 +109,13 @@ describe('main 冒烟（临时副本）', () => {
     expect(await main([])).toBe(2);
   });
 
+  it('shot --board 缺值时明确报错，不静默截整张画布', async () => {
+    const code = await main(['shot', file, join(tmp, 'missing-board.png'), '--board']);
+    expect(code).toBe(1);
+    const errors = console.error as unknown as { mock: { calls: unknown[][] } };
+    expect(String(errors.mock.calls.at(-1)?.[0])).toContain('--board 需要画板 id 或 name');
+  });
+
   it('watch 参数齐全时进入实际流程（不再误报用法）', async () => {
     const errs = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0])).join('\n');
     const code = await main(['watch', 'demo', '/tmp/whatever']);

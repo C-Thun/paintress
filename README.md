@@ -56,7 +56,7 @@ paintress move <file> <id> <parent> [--index n]         reparent a node
 paintress batch <file> '<ops-json>'                     several operations at once
 paintress validate <file>                               check against the format spec
 paintress render <file> <out.html>                      write the canvas as HTML
-paintress shot <file> <out.png> [--scale n]             render to PNG
+paintress shot <file> <out.png> [--scale n] [--board id|name]  render to PNG (one board or the whole canvas)
 
 paintress web [--port n] [--idle ms] [--daemon]         start the viewer
 paintress ping | status | stop                          viewer control
@@ -77,6 +77,10 @@ paintress watch demo ./demo
 ```
 
 Canvas navigation: wheel zooms at the pointer, space / middle button / empty area drags to pan, `Ctrl/Cmd+0` returns to 100%, `Shift+1` fits the window. Files with more than one board get a board strip. Edits made through the CLI or MCP are highlighted in the viewer, and clicks assign short ids that the agent can read back with `paintress_marks`.
+
+Project rows have an **×** on hover that unbinds the project (design files are untouched; an agent re-registers on its next start), and **Stop server** in the sidebar footer shuts the viewer process down — both ask for confirmation first.
+
+When npm has a newer release than the running one, the version badge in the header grows a second line in rust red; clicking it opens the upgrade prompt (one copyable sentence) and the GitHub link. The check is client-optional on the daemon side: if npm is unreachable, the badge simply stays as it is.
 
 The toolbar's right side has two viewer-only controls. **Canvas background** switches Light / Gray / Dark for the design surface without touching the rest of the UI (click a stop or drag the knob). **Language** switches the interface between 中文 and EN; on first load it follows the browser, and anything that is not Chinese gets English. Both are per-browser and remembered locally. Registering a project, or dropping a new `.ptr` / `.pen` into a watched directory, updates every open viewer without a reload.
 

@@ -68,6 +68,48 @@ body {
   border-radius: 999px;
 }
 
+/* 有新版本时：上下两层同尺寸，下层锈红加粗（operator 定的视觉） */
+.badge-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.badge-stack:hover {
+  border-color: rgba(180, 64, 42, 0.35);
+}
+
+.badge-new {
+  color: #b4402a;
+  font-weight: 700;
+}
+
+/* 弹窗里的可复制提示词 */
+.prompt {
+  margin: 10px 0 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: all;
+}
+
+a.ghost {
+  display: inline-block;
+  text-decoration: none;
+}
+
 .section {
   padding: 12px 8px 4px;
   overflow-y: auto;
@@ -518,4 +560,105 @@ body {
 .board.active .board-size {
   color: var(--accent);
   opacity: 0.75;
+}
+
+/* ---------- 列表行内的轻量动作（解绑）---------- */
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.row .item {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-action {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.row:hover .row-action,
+.row-action:focus-visible {
+  opacity: 1;
+}
+
+.row-action:hover {
+  color: #a33;
+  border-color: rgba(170, 51, 51, 0.35);
+}
+
+/* 触屏没有 hover：直接常驻，否则点不到 */
+@media (hover: none) {
+  .row-action {
+    opacity: 1;
+  }
+}
+
+/* ---------- 二次确认对话框 ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(31, 42, 55, 0.28);
+}
+
+.modal {
+  width: min(380px, calc(100vw - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(31, 42, 55, 0.18);
+  padding: 16px 18px 14px;
+}
+
+.modal h3 {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.modal-body {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ghost.danger {
+  color: #a33;
+}
+
+.ghost.danger:hover,
+.ghost.danger:focus-visible {
+  border-color: #a33;
+  color: #a33;
+  background: rgba(170, 51, 51, 0.06);
 }

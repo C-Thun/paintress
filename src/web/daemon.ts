@@ -7,12 +7,13 @@ import {
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Registry } from './registry.js';
+import { Registry, type ProjectEntry } from './registry.js';
 import { MarksStore } from './marks.js';
 import { ChangesStore } from './changes.js';
 import { LineDecoder, encodeLine, type ClientRequest, type ServerResponse } from './protocol.js';
 import { lockPath, pidPath, safeJoin, socketPath } from './paths.js';
 import { WatchManager } from './watcher.js';
+import { VersionChecker } from './update-check.js';
 import { loadDoc, renderDocument } from '../index.js';
 
 
@@ -62,6 +63,13 @@ export interface DaemonOptions {
   idleTimeoutMs?: number;
   /** 空闲检查间隔（ms），默认 15s */
   idleCheckMs?: number;
+  /**
+   * agent 自动注册的项目在连接归零后，宽限多久自动退场（ms），默认 45s。
+   * 宽限期用于跨过 agent 崩溃重启的窗口；浏览器看着时永不退场。
+   */
+  autoDetachMs?: number;
+  /** 是否向 npm registry 探测新版本（默认关；由 CLI 开启，测试不碰网络） */
+  updateCheck?: boolean;
   /** 测试用：不写死端口 */
   quiet?: boolean;
 }
@@ -152,12 +160,22 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/**
+ * 破坏性写接口的 CSRF 门槛：要求自定义头 `x-paintress: 1`。
+ * 跨站 fetch 带自定义头会触发 CORS 预检，而 daemon 从不应答预检 —— 跳站页面发不出该请求。
+ * 不做 Origin 白名单：手机经隧道/反代访问时 Origin 是本机看不到的域名，白名单会误伤正常使用。
+ */
+function isTrustedWrite(req: import('node:http').IncomingMessage): boolean {
+  return req.headers['x-paintress'] === '1';
+}
+
 export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandle> {
   const releaseLock = acquireLock();
   const registry = new Registry();
   const marks = new MarksStore();
   const changes = new ChangesStore();
   const watchers = new WatchManager();
+  const versions = new VersionChecker();
   const startedAt = Date.now();
   const idleTimeoutMs = opts.idleTimeoutMs ?? 60_000;
   const idleCheckMs = opts.idleCheckMs ?? 15_000;
@@ -169,6 +187,11 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
    * 项目列表变化时推 `projects` 事件，避免用户按 F5 才看到新项目。
    */
   const registryClients = new Set<import('node:http').ServerResponse>();
+  /** 控制面长连接：shutdown 时必须主动结束，否则 server.close() 会一直等 agent attach */
+  const controlClients = new Set<Socket>();
+  /** 将被关闭的长连接数：agent attach + 设计稿 SSE + 项目列表 SSE */
+  const connectionCount = (): number =>
+    registryClients.size + registry.all().reduce((n, p) => n + p.agents.size + p.browsers.size, 0);
   const notifyRegistry = (): void => {
     const payload = JSON.stringify({ projects: registry.all().length, at: Date.now() });
     for (const res of registryClients) {
@@ -195,16 +218,69 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     registryTimer.unref?.();
   };
 
+  /**
+   * agent 自动注册的项目退场：连接归零且无浏览器在看的宽限期后 unwatch。
+   * - 宽限期跨过 agent 崩溃重启的窗口（新进程会重新 watch/attach，定时器随即撤销）
+   * - 浏览器 SSE 开着时永不退场
+   * - 人手动 watch 的项目（owner=manual）不参与自动退场
+   */
+  const autoDetachMs = opts.autoDetachMs ?? 45_000;
+  const autoDetachTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function cancelAutoDetach(name: string): void {
+    const timer = autoDetachTimers.get(name);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    autoDetachTimers.delete(name);
+  }
+
+  /** 移除项目并释放目录监听（与 unwatch 同一套收尾），返回是否真的移除了 */
+  function detachProject(entry: ProjectEntry, reason: string): boolean {
+    cancelAutoDetach(entry.name);
+    const removed = registry.remove(entry.name);
+    if (!removed) return false;
+    if (!registry.all().some((p) => p.rootReal === entry.rootReal)) {
+      watchers.unwatchDesigns(entry.rootReal);
+    }
+    if (!opts.quiet) process.stderr.write(`paintress web: 解绑项目 ${entry.name}（${reason}）\n`);
+    notifyRegistry();
+    return true;
+  }
+
+  function maybeScheduleAutoDetach(name: string): void {
+    if (closing) return;
+    const entry = registry.get(name);
+    if (entry === undefined || entry.owner !== 'agent' || !registry.isIdle(entry)) {
+      cancelAutoDetach(name);
+      return;
+    }
+    if (autoDetachTimers.has(name)) return;
+    const timer = setTimeout(() => {
+      autoDetachTimers.delete(name);
+      const current = registry.get(name);
+      // 宽限期内可能又有 agent attach、浏览器打开，或被手动 watch 接管
+      if (current === undefined || current.owner !== 'agent' || !registry.isIdle(current)) return;
+      detachProject(current, 'agent 已退出');
+    }, autoDetachMs);
+    timer.unref?.();
+    autoDetachTimers.set(name, timer);
+  }
+
   /** 控制面：一个连接可同时作为 agent 存活信号 */
   const handleClient = (socket: Socket): void => {
+    controlClients.add(socket);
+    socket.on('close', () => controlClients.delete(socket));
     const decoder = new LineDecoder();
     let attachToken: { project: string; token: symbol } | null = null;
 
     const cleanup = (): void => {
       if (!attachToken) return;
-      const entry = registry.get(attachToken.project);
+      const gone = attachToken.project;
+      const entry = registry.get(gone);
       if (entry) entry.agents.delete(attachToken.token);
       attachToken = null;
+      // 最后一个 agent 连接断开：自动注册的项目进入宽限退场
+      maybeScheduleAutoDetach(gone);
     };
     socket.on('close', cleanup);
     socket.on('error', cleanup);
@@ -237,7 +313,9 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               });
               break;
             case 'watch': {
-              const entry = registry.watch(req.project, req.dir, req.depth);
+              const entry = registry.watch(req.project, req.dir, req.depth, req.owner === 'agent' ? { owner: 'agent' } : {});
+              // 人显式 watch 的项目撤回待执行的自动退场
+              cancelAutoDetach(entry.name);
               watchers.watchDesigns(entry.rootReal, entry.depth, scheduleRegistryNotify);
               reply({ ok: true, watched: true, project: registry.info(entry) });
               notifyRegistry();
@@ -245,19 +323,14 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
             }
             case 'unwatch': {
               const before = registry.get(req.project);
-              const removed = registry.remove(req.project);
+              const removed = before === undefined ? false : detachProject(before, 'unwatch');
               reply({ ok: true, unwatched: removed });
-              if (removed) {
-                if (before && !registry.all().some((p) => p.rootReal === before.rootReal)) {
-                  watchers.unwatchDesigns(before.rootReal);
-                }
-                notifyRegistry();
-              }
               break;
             }
             case 'attach': {
               const entry = registry.get(req.project);
               if (!entry) throw new Error(`项目未注册：${req.project}`);
+              cancelAutoDetach(req.project);
               const token = Symbol(`agent:${req.project}`);
               entry.agents.add(token);
               attachToken = { project: req.project, token };
@@ -359,8 +432,33 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
             pid: process.pid,
             uptimeMs: Date.now() - startedAt,
             version: VERSION,
+            // 新版本号（后台探测，本次响应先用上次结果；未开启探测时恒为 null）
+            latest: opts.updateCheck === true ? versions.peek() : null,
+            connections: connectionCount(),
             projects: registry.all().map((p) => registry.info(p)),
           });
+          return;
+        }
+        // 轻量版本/连接数轮询：不列设计稿，避免定时刷新反复扫描项目目录
+        if (segments[1] === 'version' && segments.length === 2) {
+          sendJson(200, {
+            ok: true,
+            pid: process.pid,
+            version: VERSION,
+            latest: opts.updateCheck === true ? versions.peek() : null,
+            connections: connectionCount(),
+          });
+          return;
+        }
+        // 解绑项目（查看器项目行的「解绑」）：幂等，已不存在也不算错
+        if (segments[1] === 'projects' && segments.length === 3 && req.method === 'DELETE') {
+          if (!isTrustedWrite(req)) {
+            sendJson(403, { ok: false, error: '缺少 x-paintress 头' });
+            return;
+          }
+          const name = decodeURIComponent(segments[2] ?? '');
+          const entry = registry.get(name);
+          sendJson(200, { ok: true, unwatched: entry === undefined ? false : detachProject(entry, 'web 界面解绑') });
           return;
         }
         if (segments[1] === 'projects' && segments[3] === 'files') {
@@ -372,6 +470,18 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           }
           entry.lastAccess = Date.now();
           sendJson(200, { ok: true, project: entry.name, depth: entry.depth, files: registry.listDesigns(entry) });
+          return;
+        }
+        // 关闭 web 进程（查看器侧栏「关闭服务器」）：等响应发完再走已有 shutdown 流程
+        if (segments[1] === 'shutdown' && req.method === 'POST') {
+          if (!isTrustedWrite(req)) {
+            sendJson(403, { ok: false, error: '缺少 x-paintress 头' });
+            return;
+          }
+          res.once('finish', () => {
+            setTimeout(() => void shutdown('web 界面关闭'), 0).unref?.();
+          });
+          sendJson(200, { ok: true, shutdown: true, connections: connectionCount() });
           return;
         }
         if (segments[1] === 'changes') {
@@ -468,6 +578,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         res.write(': connected\n\n');
         const token = Symbol('browser');
         entry.browsers.add(token);
+        // 有人在看：撤销待执行的自动退场
+        cancelAutoDetach(entry.name);
         const release = watchers.acquire(abs, () => {
           res.write(`event: change\ndata: ${JSON.stringify({ path: relPath, at: Date.now() })}\n\n`);
         });
@@ -476,6 +588,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           clearInterval(keepAlive);
           release();
           entry.browsers.delete(token);
+          maybeScheduleAutoDetach(entry.name);
         };
         req.on('close', done);
         return;
@@ -658,6 +771,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     if (!opts.quiet) process.stderr.write(`paintress web: 退出（${reason}）\n`);
     clearInterval(idleTimer);
     if (registryTimer !== null) clearTimeout(registryTimer);
+    for (const timer of autoDetachTimers.values()) clearTimeout(timer);
+    autoDetachTimers.clear();
     for (const client of registryClients) {
       try {
         client.end();
@@ -666,9 +781,15 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
       }
     }
     registryClients.clear();
+    // end() 而非 destroy()：已排队的 shutdown 响应仍会发完，再关闭各 agent attach
+    for (const client of controlClients) client.end();
+    controlClients.clear();
     await watchers.closeAll();
     await new Promise<void>((resolve) => sockServer.close(() => resolve()));
-    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    // HTTP/2 不适用；HTTP/1 的 SSE 是活跃连接，close() 本身不会结束它们
+    const httpClosed = new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    httpServer.closeAllConnections();
+    await httpClosed;
     releaseLock();
   }
 

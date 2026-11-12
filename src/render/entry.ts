@@ -1,12 +1,16 @@
 import { makeVarResolver, expandRefs, type Warnings } from './index.js';
-import { renderTree, computeCanvas, escapeAttr } from './html.js';
+import { renderTree, computeCanvas, boardBoxes, escapeAttr, type BoardBox } from './html.js';
 import type { PenDocument } from '../schema/index.js';
+
+export type { BoardBox };
 
 export interface RenderResult {
   html: string;
   warnings: Warnings;
   /** 画布尺寸（顶层节点包围盒，px） */
   canvas: { width: number; height: number };
+  /** 每个顶层节点的包围盒（画板）：供按画板截图层选择与裁剪 */
+  boards: BoardBox[];
 }
 
 export interface RenderOptions {
@@ -24,6 +28,7 @@ export function renderDocument(doc: PenDocument, opts: RenderOptions = {}): Rend
   const vars = makeVarResolver(doc, warnings);
   const expanded = expandRefs(doc, warnings);
   const canvas = computeCanvas(expanded, vars);
+  const boards = boardBoxes(expanded, vars);
   const title = opts.title ?? 'paintress render';
   const body = renderTree(expanded, vars, warnings);
   const html = [
@@ -46,5 +51,5 @@ export function renderDocument(doc: PenDocument, opts: RenderOptions = {}): Rend
     '</html>',
     '',
   ].join('\n');
-  return { html, warnings, canvas };
+  return { html, warnings, canvas, boards };
 }

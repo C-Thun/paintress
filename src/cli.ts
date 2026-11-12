@@ -32,7 +32,7 @@ import { VERSION } from './shared/version.js';
  *   paintress move <file> <id> <parent> [--index n]
  *   paintress batch <file> '<ops-json>'
  *   paintress render <file> <out.html>
- *   paintress shot <file> <out.png> [--scale n]
+ *   paintress shot <file> <out.png> [--scale n] [--board id|name]
  *   paintress validate <file>
  *   paintress web [--port n] [--idle ms] [--daemon]   启动唯一 web 实例
  *   paintress ping                                    检查 web 是否在运行
@@ -52,7 +52,7 @@ export interface ParsedCommand {
   flags: Record<string, string | boolean>;
 }
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force']);
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force', 'board']);
 const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run', 'force']);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
@@ -286,6 +286,7 @@ export async function main(argv: string[]): Promise<number> {
       const handle = await startDaemon({
         ...(port !== undefined ? { port } : {}),
         ...(idle !== undefined ? { idleTimeoutMs: idle } : {}),
+        updateCheck: true,
       });
       console.log(JSON.stringify({ ok: true, pid: handle.pid, port: handle.port, http: `http://localhost:${handle.port}` }, null, 2));
       // 不返回：server 保持打开，事件循环非空 → 进程常驻
@@ -384,10 +385,13 @@ export async function main(argv: string[]): Promise<number> {
       }
       case 'shot': {
         if (!a1) throw new Error('缺少 <out.png> 参数');
+        if (flags['board'] === true) throw new Error('--board 需要画板 id 或 name');
+        const board = flagStr(flags, 'board');
         out = await call('paintress_screenshot', {
           path: file,
           out: a1,
           ...(flagNum(flags, 'scale') !== undefined ? { scale: flagNum(flags, 'scale') } : {}),
+          ...(board !== undefined ? { board } : {}),
         });
         break;
       }

@@ -29,6 +29,24 @@ export interface Messages {
   allBoards: string;
   canvasBackground: string;
   language: string;
+  unwatch: string;
+  unwatchTitle: string;
+  unwatchBody: (name: string) => string;
+  closeServer: string;
+  closeServerTitle: string;
+  closeServerBody: (pid: number, connections: number) => string;
+  cancel: string;
+  serverClosed: string;
+  serverClosedHint: string;
+  updateAvailable: (latest: string, current: string) => string;
+  updateTitle: string;
+  updatePrompt: string;
+  updateSteps: string;
+  updateRepo: string;
+  copy: string;
+  copied: string;
+  close: string;
+  versionTitle: string;
 }
 
 const MESSAGES: Record<Lang, Messages> = {
@@ -53,6 +71,26 @@ const MESSAGES: Record<Lang, Messages> = {
     allBoards: '全部',
     canvasBackground: '画布背景',
     language: '界面语言',
+    unwatch: '解绑',
+    unwatchTitle: '解绑项目',
+    unwatchBody: (name) =>
+      `「${name}」将从项目列表中移除。设计稿文件不受影响；agent 下次启动会自动重新注册。`,
+    closeServer: '关闭服务器',
+    closeServerTitle: '关闭 web 进程',
+    closeServerBody: (pid, connections) =>
+      `将断开 ${connections} 个长连接并停止进程 pid ${pid}。之后可用 paintress web 重新启动。`,
+    cancel: '取消',
+    serverClosed: '服务已关闭',
+    serverClosedHint: '可以关闭此页面；需要时重新启动 paintress web。',
+    updateAvailable: (latest, current) => `新版 v${latest}（当前 v${current}）`,
+    updateTitle: '有新版本',
+    updatePrompt: '把 paintress 升级到最新版：npm install -g paintress@latest，完成后重启 MCP 会话。',
+    updateSteps: '把上面这句话交给你的 AI 即可；或自己在终端执行那条命令。',
+    updateRepo: 'GitHub',
+    copy: '复制',
+    copied: '已复制',
+    close: '关闭',
+    versionTitle: '版本',
   },
   en: {
     projects: 'Projects',
@@ -75,6 +113,26 @@ const MESSAGES: Record<Lang, Messages> = {
     allBoards: 'All',
     canvasBackground: 'Canvas background',
     language: 'Language',
+    unwatch: 'Unbind',
+    unwatchTitle: 'Unbind project',
+    unwatchBody: (name) =>
+      `“${name}” will be removed from the project list. Design files are untouched; the agent re-registers it on next start.`,
+    closeServer: 'Stop server',
+    closeServerTitle: 'Stop web process',
+    closeServerBody: (pid, connections) =>
+      `This drops ${connections} live connection${connections === 1 ? '' : 's'} and stops process pid ${pid}. Restart later with paintress web.`,
+    cancel: 'Cancel',
+    serverClosed: 'Server stopped',
+    serverClosedHint: 'You can close this page; run paintress web to start it again.',
+    updateAvailable: (latest, current) => `v${latest} available (running v${current})`,
+    updateTitle: 'Update available',
+    updatePrompt: 'Upgrade paintress to the latest version: npm install -g paintress@latest, then restart the MCP session.',
+    updateSteps: 'Hand that line to your AI, or run the command yourself in a terminal.',
+    updateRepo: 'GitHub',
+    copy: 'Copy',
+    copied: 'Copied',
+    close: 'Close',
+    versionTitle: 'Version',
   },
 };
 

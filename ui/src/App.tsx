@@ -4,15 +4,22 @@ import {
   clearMarks,
   eventsUrl,
   fetchChanges,
+  fetchDaemonInfo,
   fetchFiles,
   fetchMarks,
   fetchProjects,
   registryEventsUrl,
   renderUrl,
+  shutdownDaemon,
+  unwatchProject,
+  type DaemonInfo,
   type Mark,
   type ProjectInfo,
 } from './api';
+import { Confirm, Modal } from './confirm';
+import { isNewer } from '../../src/shared/version-compare.js';
 import { bindViewport, type ViewportBinding } from './frame-viewport';
+import { FRAME_STYLE } from './frame-style';
 import { parseViewport } from './viewport';
 import {
   CanvasBgSwitch,
@@ -38,6 +45,9 @@ interface Crumb {
   name?: string;
 }
 
+/** 需要二次确认的破坏性动作（两者都不能手滑就执行） */
+type PendingAction = { kind: 'unwatch'; name: string } | { kind: 'shutdown' };
+
 function cssEscape(s: string): string {
   return typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&');
 }
@@ -51,7 +61,7 @@ export default function App() {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [crumbs, setCrumbs] = createSignal<Crumb[]>([]);
   const [error, setError] = createSignal<string | null>(null);
-  const [daemonInfo, setDaemonInfo] = createSignal<{ pid?: number; version?: string }>({});
+  const [daemonInfo, setDaemonInfo] = createSignal<DaemonInfo>({});
   const [reloadKey, setReloadKey] = createSignal(0);
   const [live, setLive] = createSignal(true);
   const [iframeSrc, setIframeSrc] = createSignal('');
@@ -60,6 +70,10 @@ export default function App() {
   const [zoom, setZoom] = createSignal(1);
   const [lang, setLang] = createSignal<Lang>(initialLang());
   const [canvasBg, setCanvasBg] = createSignal<CanvasBackground>(initialCanvasBackground());
+  const [pending, setPending] = createSignal<PendingAction | null>(null);
+  const [closed, setClosed] = createSignal(false);
+  const [showUpdate, setShowUpdate] = createSignal(false);
+  const [copied, setCopied] = createSignal(false);
   const m = (): ReturnType<typeof messages> => messages(lang());
 
   let frameEl: HTMLIFrameElement | undefined;
@@ -82,10 +96,20 @@ export default function App() {
     try {
       const res = await fetchProjects();
       setProjects(res.projects);
-      setDaemonInfo({ pid: res.pid, version: res.version });
+      setDaemonInfo({ pid: res.pid, version: res.version, latest: res.latest ?? null, connections: res.connections });
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  /** 后台刷新版本与连接数；本地 daemon 暂时不可达时保持现状，不弹错误 */
+  async function refreshDaemonInfo(): Promise<void> {
+    try {
+      const res = await fetchDaemonInfo();
+      setDaemonInfo({ pid: res.pid, version: res.version, latest: res.latest ?? null, connections: res.connections });
+    } catch {
+      /* 轮询必须静默：npm 或 daemon 暂时不可达都不打扰查看 */
     }
   }
 
@@ -161,11 +185,84 @@ export default function App() {
     syncUrl();
   }
 
+  // ---------- 版本升级提示 ----------
+  /** 有更新的版本时返回新版号，否则 null（离线 / 未探测 / 已是最新都返回 null） */
+  function updateAvailable(): string | null {
+    const latest = daemonInfo().latest ?? null;
+    const current = daemonInfo().version ?? null;
+    if (latest === null || current === null) return null;
+    return isNewer(latest, current) ? latest : null;
+  }
+
+  async function copyPrompt(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(m().updatePrompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* 剪贴板不可用（非安全上下文）：文本仍可手动选中复制 */
+    }
+  }
+
+  // ---------- 破坏性动作：解绑项目 / 关闭 web 进程 ----------
+  function askUnwatch(name: string): void {
+    setPending({ kind: 'unwatch', name });
+  }
+
+  function askShutdown(): void {
+    setPending({ kind: 'shutdown' });
+    // attach/SSE 的数量变化不推注册表事件，打开确认框时重新取一次准确值
+    void refreshDaemonInfo();
+  }
+
+  function pendingCopy(): { title: string; body: string; confirm: string } {
+    const action = pending();
+    if (action === null) return { title: '', body: '', confirm: '' };
+    if (action.kind === 'unwatch') {
+      return { title: m().unwatchTitle, body: m().unwatchBody(action.name), confirm: m().unwatch };
+    }
+    return {
+      title: m().closeServerTitle,
+      body: m().closeServerBody(daemonInfo().pid ?? 0, daemonInfo().connections ?? 0),
+      confirm: m().closeServer,
+    };
+  }
+
+  async function runPending(): Promise<void> {
+    const action = pending();
+    setPending(null);
+    if (action === null) return;
+    try {
+      if (action.kind === 'unwatch') {
+        await unwatchProject(action.name);
+        await refreshRegistry();
+      } else {
+        await shutdownDaemon();
+        setClosed(true);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   onMount(() => {
     // 注册表通道：项目增删 / 目录里新增设计稿 → 列表自动更新（不需要 F5）
     const registrySource = new EventSource(registryEventsUrl());
     registrySource.addEventListener('projects', () => void refreshRegistry());
     onCleanup(() => registrySource.close());
+
+    // 首次 /api/projects 只启动后台 npm 探测并返回旧值；4s 后再取才能看到结果。
+    // 后续轻量轮询让缓存过期后的新版本也能出现，不反复扫描项目目录。
+    const versionRetry = setTimeout(() => {
+      if (!closed()) void refreshDaemonInfo();
+    }, 4000);
+    const versionPoll = setInterval(() => {
+      if (!closed()) void refreshDaemonInfo();
+    }, 60_000);
+    onCleanup(() => {
+      clearTimeout(versionRetry);
+      clearInterval(versionPoll);
+    });
 
     // 焦点在父页面时也要能：空格临时平移、Ctrl+0/Shift+1 视口快捷键
     const isTyping = (ev: KeyboardEvent): boolean => {
@@ -214,16 +311,7 @@ export default function App() {
     if (doc.getElementById('ptr-style')) return;
     const style = doc.createElement('style');
     style.id = 'ptr-style';
-    style.textContent = [
-      '[data-ptr-selected]{outline:2px solid #908030 !important;outline-offset:-2px;}',
-      '[data-ptr-hover]:not([data-ptr-selected]){outline:1px dashed rgba(144,128,48,.55) !important;outline-offset:-2px;}',
-      '[data-ptr-changed]{box-shadow:inset 0 0 0 2px #908030 !important;animation:ptr-pulse 1.4s ease-in-out 3;}',
-      '@keyframes ptr-pulse{0%,100%{box-shadow:inset 0 0 0 2px #908030}50%{box-shadow:inset 0 0 0 2px rgba(144,128,48,.35)}}',
-      'html{cursor:default;}',
-      'html,body{overflow:hidden;}',
-      // 画布背景由父页面注入（CanvasBgSwitch），#fff 为未设置时的兜底
-      'html,body{background:var(--ptr-canvas-bg,#ffffff);}',
-    ].join('\n');
+    style.textContent = FRAME_STYLE;
     doc.head.appendChild(style);
   }
 
@@ -530,7 +618,15 @@ export default function App() {
           <img class="brand-mark" src="/logo.svg" alt="" />
           <h1>paintress</h1>
           <Show when={daemonInfo().version}>
-            <span class="badge">v{daemonInfo().version}</span>
+            <Show
+              when={updateAvailable()}
+              fallback={<span class="badge" title={m().versionTitle}>v{daemonInfo().version}</span>}
+            >
+              <button class="badge badge-stack" title={m().updateTitle} onClick={() => setShowUpdate(true)}>
+                <span>v{daemonInfo().version}</span>
+                <span class="badge-new">v{updateAvailable()}</span>
+              </button>
+            </Show>
           </Show>
         </header>
 
@@ -549,10 +645,13 @@ export default function App() {
             <ul class="list">
               <For each={projects()}>
                 {(p) => (
-                  <li>
+                  <li class="row">
                     <button class="item" classList={{ active: activeProject() === p.name }} onClick={() => void openProject(p.name)}>
                       <span class="item-name">{p.name}</span>
                       <span class="item-meta">{m().projectFiles(p.fileCount)}</span>
+                    </button>
+                    <button class="row-action" title={m().unwatch} aria-label={`${m().unwatch} ${p.name}`} onClick={() => askUnwatch(p.name)}>
+                      ×
                     </button>
                   </li>
                 )}
@@ -617,6 +716,9 @@ export default function App() {
           </label>
           <button class="ghost" onClick={() => void loadProjects()}>
             {m().refreshList}
+          </button>
+          <button class="ghost" onClick={() => askShutdown()}>
+            {m().closeServer}
           </button>
           <Show when={daemonInfo().pid}>
             <span class="hint">pid {daemonInfo().pid}</span>
@@ -715,6 +817,50 @@ export default function App() {
           />
         </Show>
       </main>
+
+      <Confirm
+        open={pending() !== null}
+        title={pendingCopy().title}
+        body={pendingCopy().body}
+        confirmLabel={pendingCopy().confirm}
+        cancelLabel={m().cancel}
+        onConfirm={() => void runPending()}
+        onCancel={() => setPending(null)}
+      />
+
+      <Show when={closed()}>
+        <div class="modal-backdrop">
+          <div class="modal" role="status">
+            <h3>{m().serverClosed}</h3>
+            <p class="modal-body">{m().serverClosedHint}</p>
+          </div>
+        </div>
+      </Show>
+
+      <Modal
+        open={showUpdate()}
+        title={m().updateTitle}
+        onClose={() => setShowUpdate(false)}
+        actions={
+          <>
+            <a class="ghost" href="https://github.com/aliciai-dev/paintress" target="_blank" rel="noreferrer">
+              {m().updateRepo}
+            </a>
+            <button class="ghost" onClick={() => setShowUpdate(false)}>
+              {m().close}
+            </button>
+          </>
+        }
+      >
+        <p class="modal-body">
+          {m().updateAvailable(updateAvailable() ?? '', daemonInfo().version ?? '')}
+        </p>
+        <pre class="prompt">{m().updatePrompt}</pre>
+        <button class="ghost tiny" onClick={() => void copyPrompt()}>
+          {copied() ? m().copied : m().copy}
+        </button>
+        <p class="modal-body">{m().updateSteps}</p>
+      </Modal>
     </div>
   );
 }
