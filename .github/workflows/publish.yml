@@ -1,14 +1,24 @@
 ---
 name: publish
 
+# 发布不再重跑测试：同一提交的 ci.yml 已经把那一整套跑过了，这里只校验结论。
+# 理由（2026-11-13，v0.5.0 发版事故）：同一份代码在两条流水线上跑同一套用例，
+# 只会把抖动概率翻倍、把发版时间拉长，不产生任何新信号。
+# 流程：等该提交的 ci 结论为 success → build → verify:pkg → npm publish。
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      skip_ci_check:
+        description: 'ci 自身故障时强制发布：跳过 ci 结论校验（记录在本 run 里）'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   id-token: write  # trusted publishing (OIDC)
+  actions: read    # 读同一提交的 ci 运行结论
 
 jobs:
   publish:
@@ -36,15 +46,49 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Chromium for screenshot tests
-        run: pnpm exec playwright-core install --with-deps chromium
+      # 测试由 ci.yml 把关，这里只等它的结论 —— 不重复执行。
+      # tag 通常在分支推送后几秒内推上来，所以这里要等它跑完。
+      - name: Require green ci for this commit
+        if: ${{ !inputs.skip_ci_check }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          api="repos/${REPO}/actions/workflows/ci.yml/runs"
+          api="${api}?head_sha=${SHA}&per_page=1"
+          deadline=$((SECONDS + 600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            json=$(gh api "$api" 2>/dev/null) || {
+              echo "查询 ci 运行失败，10s 后重试"
+              sleep 10
+              continue
+            }
+            status=$(jq -r '.workflow_runs[0].status // ""' <<<"$json")
+            conclusion=$(jq -r '.workflow_runs[0].conclusion // ""' <<<"$json")
+            url=$(jq -r '.workflow_runs[0].html_url // ""' <<<"$json")
+            if [ -z "$status" ]; then
+              echo "该提交还没有 ci 运行（等待中）"
+            elif [ "$status" != "completed" ]; then
+              echo "ci $status — $url"
+            elif [ "$conclusion" = "success" ]; then
+              echo "ci success — $url"
+              exit 0
+            else
+              echo "::error::ci 结论 ${conclusion}，拒绝发布：${url}"
+              echo "修好用例后：pnpm release --retag"
+              echo "确认是 ci 自身故障：workflow_dispatch 勾 skip_ci_check"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::等待 ci 结论超时（10 分钟）"
+          echo "先确认 ${SHA} 的 ci 运行状态，再重试。"
+          exit 1
 
-      # 先构建：web.spec 的 SPA 回退用例需要 ui/dist 存在，否则 daemon 返回 404
       - name: Build (server + viewer)
         run: pnpm build
-
-      - name: Test
-        run: pnpm test
 
       - name: Verify package contents
         run: pnpm verify:pkg

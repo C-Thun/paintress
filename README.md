@@ -116,18 +116,19 @@ paintress mcp-config cursor   # print the exact snippet instead of editing files
 
 ## Release (maintainers)
 
-Publishing is tag-driven: a `v*` tag makes `.github/workflows/publish.yml` build, test and `npm publish --provenance` through OIDC trusted publishing. Do not publish from a laptop.
+Publishing is tag-driven: a `v*` tag makes `.github/workflows/publish.yml` first check that **ci passed for the same commit**, then build, verify the package contents and run `npm publish --provenance` through OIDC trusted publishing. Tests run once, in `ci.yml`; publishing does not re-run them. Do not publish from a laptop.
 
 ```bash
 pnpm release patch             # 0.3.1 → 0.3.2
 pnpm release minor             # 0.3.1 → 0.4.0
 pnpm release major             # 0.3.1 → 1.0.0
 pnpm release patch --dry-run   # print the plan only
+pnpm release --retag           # after a failed release: move the unpublished tag and re-publish
 ```
 
 The script refuses to run on a dirty worktree or a non-default branch, verifies the tag is free, runs typecheck (server + ui), the test suite, the build and the package-contents check, then commits `chore(release): vX.Y.Z`, tags it, pushes branch + tag, and finally waits until the version is actually on npm (a green run that published nothing is reported as a failure, not a success).
 
-`--prepare-only` stops after the local commit and tag; `--no-wait` returns right after the push; `--local` publishes from this machine as an emergency path and skips the CI checks.
+`--prepare-only` stops after the local commit and tag; `--no-wait` returns right after the push; `--local` publishes from this machine as an emergency path and skips the CI checks. `--retag` is the recovery path after a failed release: once it confirms the version is not on npm yet, it moves the existing tag to the current commit and re-publishes under the same version number; an already published version is refused.
 
 ## License
 

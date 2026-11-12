@@ -30,6 +30,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # 浏览器不缓存的话每次先下载 ~150MB；键含 lockfile 哈希（playwright-core 版本在其中）。
+      # 命中时 `playwright install` 会跳过下载，仍会补装系统依赖。
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install Chromium for screenshot tests
         run: pnpm exec playwright-core install --with-deps chromium
 

@@ -5,6 +5,8 @@
  * 发版语义与 pi-toolkits 一致：**tag 是发版意图，CI 是发版执行**。
  * 本脚本只做「准备 + 推 tag」，`.github/workflows/publish.yml` 被 `v*` tag
  * 触发后用 OIDC trusted publishing 发布（无 token、无 2FA、自带 provenance）。
+ * publish 不重跑测试：它只校验「同一提交的 ci 结论为 success」（测试在 ci.yml 跑一次），
+ * 然后 build + 包内容自检 + npm publish —— 同一套用例两边各跑一遍只会让抖动概率翻倍。
  * 推 tag 成功 ≠ 发版成功 —— 脚本会盯着 CI 与 registry，确认版本真的在 npm 上。
  *
  * 流程：

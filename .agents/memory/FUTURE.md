@@ -18,8 +18,6 @@
 | 条目 | 卡在哪 |
 | --- | --- |
 | 附注 md **只读**视图 | 范围已砍掉写入（见该节「已定」）；剩两个小决策：面板位置、md→HTML 方案 |
-| 发布工作流重复门禁（见「技术债与待评估」） | 需先定：publish 是否改为「校验该 SHA 的 ci 结论 + 只构建发布」 |
-| CI 缓存 Playwright 浏览器（见「技术债与待评估」） | 每次发版重下 ~150MB；`~/.cache/ms-playwright` 尚未用 `actions/cache` |
 | 浏览器端交互回归测试 | 需复用 daemon 启动与 fixture（`test/web.spec.ts` 有骨架），~半天 |
 | trusted publishing 迁移 | 硬期限 2027-01；CI 已有 OIDC + provenance，剩 npm 侧配置与一次真发布验证 |
 | 查看器 UI 缺口（只读属性面板 / 多稿切换） | 纯体验增益，可拆成两件分别半天 |
@@ -186,22 +184,6 @@ tokens  ←  presets  ←  components  ←  页面节点实例
 - 是否支持 md 里写 `#短号` / 节点 id 并点击跳转到节点（与 marks 联动，可放第二版）。
 
 ## 技术债与待评估
-
-### 发布工作流的重复门禁与 runner 成本（2026-11-13）
-
-**是什么**：`publish.yml` 在 tag 上重跑一整套测试，而同一个 SHA 几秒前刚被 `ci.yml` 跑过一遍。
-同一份代码、同一套环境，只是把失败概率翻倍 —— v0.5.0 就是这样让两条流水线同时挂掉（同一个 chromium 钩子超时）。
-另一件事：每次发版都重新下载 ~150MB 的 Chromium，`~/.cache/ms-playwright` 没用 `actions/cache`。
-
-**候选做法**：
-
-1. publish 改成「校验该 SHA 的 ci 结论为 success + build + `verify:pkg` + publish」，不再重复跑测试；
-2. CI 给 Playwright 浏览器加 `actions/cache`（键用 `playwright-core` 版本）；
-3. GitHub 侧仍不稳时，本机 `pnpm release --local` 作为应急出口（脚本已有）。
-
-**为什么等**：当前已经用「修测试时间预算 + `--retag` 恢复」抹平了实际故障，改 publish 的门禁属发布核心路径，要先定口径。
-
-**触发条件**：再出现一次「同一 SHA 在 ci 绿、publish 红」，或发版耗时成为痛点时。
 
 ### 渲染器未完整实现的规格项
 

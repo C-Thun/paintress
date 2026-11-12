@@ -112,18 +112,19 @@ paintress mcp-config cursor   # 只打印片段，不改文件
 
 ## 发版（维护者）
 
-发布由 tag 驱动：`v*` tag 会让 `.github/workflows/publish.yml` 构建、测试并通过 OIDC trusted publishing 执行 `npm publish --provenance`。不要在笔记本上直接发布。
+发布由 tag 驱动：`v*` tag 会让 `.github/workflows/publish.yml` 先校验**同一提交的 ci 已通过**，再构建、自检包内容并通过 OIDC trusted publishing 执行 `npm publish --provenance`。测试只在 `ci.yml` 跑一次，发布不重跑。不要在笔记本上直接发布。
 
 ```bash
 pnpm release patch      # 0.3.1 → 0.3.2
 pnpm release minor      # 0.3.1 → 0.4.0
 pnpm release major      # 0.3.1 → 1.0.0
 pnpm release patch --dry-run   # 只打印计划
+pnpm release --retag    # 发版失败后：把未发布的 tag 移到当前提交重发
 ```
 
 脚本会拒绝在脏工作区或非默认分支上发版，确认 tag 未被占用，跑类型检查（服务端 + ui）、测试、构建与包内容自检，然后提交 `chore(release): vX.Y.Z`、打 tag、推分支与 tag，最后等到版本真的出现在 npm 上才算完（CI 绿了但什么都没发出去，会如实报成失败）。
 
-`--prepare-only` 停在本地提交与 tag；`--no-wait` 推完就返回；`--local` 本机直接发布，是应急路径，会跳过 CI 的检查。
+`--prepare-only` 停在本地提交与 tag；`--no-wait` 推完就返回；`--local` 本机直接发布，是应急路径，会跳过 CI 的检查。`--retag` 是发版失败后的恢复路径：确认该版本还没上 npm 后，把已有 tag 移到当前提交重发（版本号不变）；已发布的版本会被拒绝。
 
 ## 许可
 
