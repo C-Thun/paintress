@@ -105,4 +105,18 @@ jobs:
           fi
 
       - name: Publish with provenance
-        run: npm publish --provenance --access public
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          name="$(node -p "require('./package.json').name")"
+          published() {
+            npm view "${name}@${version}" version >/dev/null 2>&1
+          }
+          # dispatch 的用处之一是「不改版本号验证整条流水线」：已上架就跳过，不算失败。
+          # tag 推送不跳：那种情况说明在重打一个已发布的版本，必须报错。
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && published; then
+            echo "::notice::${name}@${version} 已在 registry 上，跳过发布"
+            exit 0
+          fi
+          npm publish --provenance --access public
