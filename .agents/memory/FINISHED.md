@@ -137,3 +137,12 @@
 - 结果：tag 落在 `a5b38e8`，publish success（run 43282146161），`paintress@0.5.0` 在 registry 上且带 provenance attestation；本地 17 文件 233 用例全绿。
 - 重复门禁与 CI 成本（publish 重跑同一 SHA 的测试、无 Playwright 缓存）已记入 `FUTURE.md#发布工作流的重复门禁与 runner 成本（2026-11-13）`。
 - 证据：`.agents/implementations/2026-11-13_0242_release-retag-and-hook-timeout.md`。
+
+### 发布链路提速：publish 校验 ci 结论而非重跑（2026-11-13）
+
+- `publish.yml` 不再跑测试、不再装 Chromium：改为轮询「同一提交的 ci 结论」（`gh api`，上限 10 分钟），success 才 build + `verify:pkg` + `npm publish --provenance`。同一套用例在两条流水线上各跑一遍只是把抖动概率翻倍。
+- 逃生口：`workflow_dispatch` 勾 `skip_ci_check`（仅在 ci 自身故障时用，记录在 run 里）；dispatch 时若该版本已上架则跳过发布（用于不改版本号验证流水线），tag 推送不跳。
+- `ci.yml` 加 `actions/cache@v4`（钉 v4.3.0 SHA）缓存 `~/.cache/ms-playwright`：命中时安装 22s → 13s。
+- 实测（2026-11-13）：ci 单 job 62s；publish **71s → 29s**（dispatch 复跑）；门禁抓到的是正确的那次 ci run。
+- 校验：门禁脚本用桩 `gh` 跑 6 个场景、发布步骤用桩 `npm` 跑 3 个场景，全部符合预期；`shellcheck` 干净。
+- 证据：`.agents/implementations/2026-11-13_0314_publish-gate-and-ci-cache.md`。
