@@ -73,7 +73,7 @@ paintress mcp-config <client>                          打印单个客户端的�
 ```bash
 paintress web --daemon --idle 3600000
 paintress watch demo ./demo
-# 打开 http://localhost:3316/?project=demo&file=hello.ptr
+# 打开 http://localhost:3316/demo?file=hello.ptr
 ```
 
 画布操作：滚轮以指针为锚点缩放，空格 / 中键 / 空白处拖拽平移，`Ctrl/Cmd+0` 回到 100%，`Shift+1` 适应窗口。多画板文件会显示画板条。通过 CLI 或 MCP 做的修改会在查看器里高亮，点击会让节点获得短号，agent 用 `paintress_marks` 读回。

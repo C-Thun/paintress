@@ -2,6 +2,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { TOOLS, type ToolOutput } from './mcp/tools.js';
 import { runStdioServer } from './mcp/server.js';
 import { startDaemon } from './web/daemon.js';
@@ -52,8 +53,10 @@ export interface ParsedCommand {
   flags: Record<string, string | boolean>;
 }
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force', 'board']);
-const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run', 'force']);
+const NO_OPEN_FLAG = 'no-open';
+
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force', 'board', NO_OPEN_FLAG]);
+const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run', 'force', NO_OPEN_FLAG]);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
 export function parseArgv(argv: string[]): ParsedCommand | null {
@@ -161,9 +164,12 @@ export async function main(argv: string[]): Promise<number> {
     if (cmd === 'watch') {
       if (!file || !a1) throw new Error('用法：paintress watch <name> <dir> [--depth 1..6]');
       const depth = flagNum(flags, 'depth');
+      // 目录要按“调用者的 cwd”解析成绝对路径：daemon 是常驻进程，
+      // 它的 cwd 和人在哪个目录敲命令无关
+      const dir = resolve(a1);
       console.log(
         JSON.stringify(
-          await sendRequest({ kind: 'watch', project: file, dir: a1, ...(depth !== undefined ? { depth } : {}) }, 8000),
+          await sendRequest({ kind: 'watch', project: file, dir, ...(depth !== undefined ? { depth } : {}) }, 8000),
           null,
           2,
         ),
@@ -265,11 +271,14 @@ export async function main(argv: string[]): Promise<number> {
     if (cmd === 'web') {
       const port = flagNum(flags, 'port');
       const idle = flagNum(flags, 'idle');
+      // --no-open：不想被弹浏览器时用（CI、远程、只想拿 URL 给人）
+      const noOpen = flags[NO_OPEN_FLAG] === true || process.env['PAINTRESS_NO_OPEN'] === '1';
       if (flags['daemon'] === true) {
         const { spawn } = await import('node:child_process');
         const args = [process.argv[1] ?? '', 'web'];
         if (port !== undefined) args.push('--port', String(port));
         if (idle !== undefined) args.push('--idle', String(idle));
+        if (noOpen) args.push('--no-open');
         const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
         child.unref();
         const deadline = Date.now() + 5000;
@@ -286,9 +295,16 @@ export async function main(argv: string[]): Promise<number> {
       const handle = await startDaemon({
         ...(port !== undefined ? { port } : {}),
         ...(idle !== undefined ? { idleTimeoutMs: idle } : {}),
+        // 人手动起的实例给一分钟窗口去 watch；agent 自动起的走默认的 3s 快速收尾
+        emptyGraceMs: 60_000,
         updateCheck: true,
       });
-      console.log(JSON.stringify({ ok: true, pid: handle.pid, port: handle.port, http: `http://localhost:${handle.port}` }, null, 2));
+      const http = `http://localhost:${handle.port}`;
+      console.log(JSON.stringify({ ok: true, pid: handle.pid, port: handle.port, http }, null, 2));
+      if (!noOpen) {
+        const { openBrowser } = await import('./web/open-browser.js');
+        openBrowser(`${http}/`);
+      }
       // 不返回：server 保持打开，事件循环非空 → 进程常驻
       await new Promise<void>((resolve) => {
         process.once('SIGINT', () => void handle.close().then(() => resolve()));

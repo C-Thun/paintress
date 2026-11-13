@@ -66,10 +66,12 @@ Ask the user to open the URL and click the nodes they mean; then read `paintress
 
 ## Bind the project yourself — do not wait to be asked
 
-When the user refers to a design, asks to see one, or asks to draw something in this project, **you** make it viewable. The MCP server auto-registers the working directory at startup (its name is derived from the last two path segments, e.g. `acme-shop`); if that already covers the request, just hand over the viewer URL:
+When the user refers to a design, asks to see one, or asks to draw something in this project, **you** make it viewable. The MCP server auto-registers the working directory at startup (its name is the last two path segments, slash included, e.g. `acme/shop`); if that already covers the request, just hand over the viewer URL:
 
 - viewer: `http://localhost:3316/`
-- deep link to a file: `http://localhost:3316/?project=<name>&file=<relative/path>`
+- deep link to a file: `http://localhost:3316/<name>?file=<relative/path>` (e.g. `http://localhost:3316/acme/shop?file=design/main.pen`)
+
+Starting the viewer for the first time opens the browser on the agent's own project; you do not have to tell the user to visit anything.
 
 If the design lives elsewhere (a `.pen`/`.ptr` outside the working directory, or a second project), bind it yourself:
 

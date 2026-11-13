@@ -21,24 +21,34 @@ export function pidPath(): string {
   return join(runtimeDir(), 'web.pid');
 }
 
-/** 项目名：URL 安全（字母数字点下划线连字符），冲突时加短 hash 后缀 */
+/**
+ * 项目名：URL 安全（字母数字点下划线连字符与 `/`），冲突时加短 hash 后缀。
+ * 允许 `/` 表达目录层级：默认项目名就是 `父目录/自身`（如 `c-thun/raybend`）。
+ */
 export function sanitizeProjectName(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[.-]+/, '');
+  const cleaned = name
+    .replace(/[^A-Za-z0-9._/-]/g, '-')
+    .replace(/\.{2,}/g, '.') // `..` 没有语义，还可能在路径拼接里被当成上级目录
+    .replace(/\/{2,}/g, '/')
+    .replace(/^[./-]+|[./-]+$/g, '');
   return cleaned === '' ? 'project' : cleaned;
 }
 
 /**
  * 由目录推导默认项目名：`父目录/自身`（适配 repos/<org>/<project> 结构）。
- * 均为 URL 安全字符；保留两级可读性。
+ * key 里直接带 `/`，URL 与展示都无需再转义。
  */
 export function deriveProjectName(dir: string): string {
   const abs = resolve(dir);
   const parent = basename(dirname(abs));
   const self = basename(abs);
   const raw = parent && parent !== '/' ? `${parent}/${self}` : self;
-  // 用 '-' 连接，避免 '/' 进入 URL 路径段造成歧义
-  return sanitizeProjectName(raw.replace(/\//g, '-'));
+  return sanitizeProjectName(raw);
 }
+
+/**
+ * 项目展示名（历史接口，保留）：现在与 key 一致，展示就是目录层级本身。
+ */
 
 export interface ResolvedDir {
   root: string;

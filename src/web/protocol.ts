@@ -17,6 +17,8 @@ export type ClientRequest =
 
 export interface ProjectInfo {
   name: string;
+  /** 人看的展示名（与目录一致的两级路径）；缺省时前端回退到 name */
+  label: string;
   root: string;
   /** 列举设计稿的最大目录深度（默认 3，上限 6） */
   depth: number;

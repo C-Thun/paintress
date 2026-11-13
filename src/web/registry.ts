@@ -11,6 +11,8 @@ import { resolveProjectDir, sanitizeProjectName } from './paths.js';
 
 export interface ProjectEntry {
   name: string;
+  /** 人看的展示名：与 key 一致（目录层级原样，如 `c-thun/raybend`） */
+  label: string;
   root: string;
   rootReal: string;
   /** 列举设计稿的最大目录深度（默认 3，上限 6） */
@@ -68,6 +70,7 @@ export class Registry {
     }
     const entry: ProjectEntry = {
       name,
+      label: name,
       root,
       rootReal,
       depth: wanted,
@@ -130,6 +133,7 @@ export class Registry {
   info(entry: ProjectEntry): ProjectInfo {
     return {
       name: entry.name,
+      label: entry.label,
       root: entry.root,
       depth: entry.depth,
       fileCount: this.listDesigns(entry).length,

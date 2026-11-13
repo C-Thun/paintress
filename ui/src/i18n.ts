@@ -47,6 +47,13 @@ export interface Messages {
   copied: string;
   close: string;
   versionTitle: string;
+  /** 项目行上的 agent 在线指示灯悬停文案 */
+  agentOnline: string;
+  /** 无激活项目时的关窗倒计时 */
+  noActiveProjects: string;
+  closingIn: (seconds: number) => string;
+  /** 刚打开页面、还没有任何项目时的等待文案 */
+  waitingForAgent: string;
 }
 
 const MESSAGES: Record<Lang, Messages> = {
@@ -91,6 +98,10 @@ const MESSAGES: Record<Lang, Messages> = {
     copied: '已复制',
     close: '关闭',
     versionTitle: '版本',
+    agentOnline: 'agent 已接入',
+    noActiveProjects: '无激活项目',
+    closingIn: (seconds) => `窗口将在 ${seconds} 秒后关闭`,
+    waitingForAgent: '等待 agent 接入 —— 在项目里让 AI 操作设计稿，这里会自动出现。',
   },
   en: {
     projects: 'Projects',
@@ -133,6 +144,10 @@ const MESSAGES: Record<Lang, Messages> = {
     copied: 'Copied',
     close: 'Close',
     versionTitle: 'Version',
+    agentOnline: 'Agent attached',
+    noActiveProjects: 'No active projects',
+    closingIn: (seconds) => `This window closes in ${seconds}s`,
+    waitingForAgent: 'Waiting for an agent — ask your AI to touch a design and it shows up here automatically.',
   },
 };
 

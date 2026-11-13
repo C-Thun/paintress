@@ -6,15 +6,17 @@ import { isDaemonRunning, sendRequest } from './client.js';
 export interface EnsureDaemonResult {
   started: boolean;
   pid?: number;
+  /** 监听端口（已知时给出，用于拼接浏览器地址） */
   port?: number;
 }
 
 const START_TIMEOUT_MS = 6000;
+const DEFAULT_PORT = 3316;
 
 export async function ensureDaemon(opts: { port?: number; idleTimeoutMs?: number } = {}): Promise<EnsureDaemonResult> {
   if (isDaemonRunning()) {
     const res = await sendRequest({ kind: 'ping' });
-    if (res.ok && 'pong' in res) return { started: false, pid: res.pid };
+    if (res.ok && 'pong' in res) return { started: false, pid: res.pid, port: opts.port ?? DEFAULT_PORT };
     // socket 在但连不上 → 视为残留，继续尝试重启
   }
 
@@ -31,7 +33,7 @@ export async function ensureDaemon(opts: { port?: number; idleTimeoutMs?: number
   while (Date.now() < deadline) {
     if (isDaemonRunning()) {
       const res = await sendRequest({ kind: 'ping' });
-      if (res.ok && 'pong' in res) return { started: true, pid: res.pid };
+      if (res.ok && 'pong' in res) return { started: true, pid: res.pid, port: opts.port ?? DEFAULT_PORT };
     }
     await new Promise((r) => setTimeout(r, 100));
   }

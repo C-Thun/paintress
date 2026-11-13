@@ -6,6 +6,8 @@ export type { Mark, MarkInput };
 
 export interface ProjectInfo {
   name: string;
+  /** 人看的展示名；旧 daemon 无此字段，前端回退到 name */
+  label?: string;
   root: string;
   depth: number;
   fileCount: number;

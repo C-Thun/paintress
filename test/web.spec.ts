@@ -147,6 +147,29 @@ describe('HTTP 路由', () => {
     expect(html).not.toContain('EventSource'); // 由父页面订阅 SSE
   });
 
+  it('项目 key 带 `/`：路径按最长前缀解析，访问不需要 %2F 转义', async () => {
+    const res = await sendRequest({ kind: 'watch', project: 'org/proj', dir: projectDir });
+    expect(res.ok).toBe(true);
+    try {
+      // 项目页地址就是 /org/proj（SPA 回退）
+      const page = await fetch(`${baseUrl}/org/proj`);
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain('id="root"');
+
+      // render / files 同样用裸 `/` 命中项目，剩余段才是文件路径
+      const rendered = await fetch(`${baseUrl}/render/org/proj/design.pen?embed=1`);
+      expect(rendered.status).toBe(200);
+      const html = await rendered.text();
+      expect(html).toContain('data-node-id="title"');
+      expect(html).toContain('<base href="/files/org/proj/">');
+
+      const asset = await fetch(`${baseUrl}/files/org/proj/design.pen`);
+      expect(asset.status).toBe(200);
+    } finally {
+      await sendRequest({ kind: 'unwatch', project: 'org/proj' });
+    }
+  });
+
   it('GET /files/:project/* 提供项目静态资源', async () => {
     writeFileSync(join(projectDir, 'dot.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     const res = await fetch(`${baseUrl}/files/${PROJECT}/dot.png`);
@@ -175,14 +198,17 @@ describe('HTTP 路由', () => {
 });
 
 describe('纯函数', () => {
-  it('sanitizeProjectName 清除危险字符', () => {
+  it('sanitizeProjectName 清除危险字符，但保留目录层级 `/`', () => {
     expect(sanitizeProjectName('../etc')).toBe('etc');
-    expect(sanitizeProjectName('a/b c')).toBe('a-b-c');
+    expect(sanitizeProjectName('a/b c')).toBe('a/b-c');
+    expect(sanitizeProjectName('c-thun/raybend')).toBe('c-thun/raybend');
+    expect(sanitizeProjectName('/a//b/')).toBe('a/b');
     expect(sanitizeProjectName('')).toBe('project');
   });
 
-  it('deriveProjectName 取父/自身两级', () => {
-    expect(deriveProjectName('/home/u/repos/org/proj')).toBe('org-proj');
+  it('deriveProjectName 取父/自身两级，key 直接带 /', () => {
+    expect(deriveProjectName('/home/u/repos/org/proj')).toBe('org/proj');
+    expect(deriveProjectName('/proj')).toBe('proj');
   });
 
   it('safeJoin 拒绝越界与符号链接逃逸', () => {
@@ -208,6 +234,38 @@ describe('idle 自动退出', () => {
     daemon = await startDaemon({ port: 0, quiet: true });
     baseUrl = `http://127.0.0.1:${daemon.port}`;
   }, 15_000);
+});
+
+describe('生命周期策略（无项目/无 agent 时自己收尾）', () => {
+  it('空仓 + 无连接 → 很快退出（不再等 idleTimeout 的一小时）', async () => {
+    await daemon.close();
+    const idle = await startDaemon({ port: 0, emptyGraceMs: 200, idleTimeoutMs: 10 * 60_000, idleCheckMs: 50, quiet: true });
+    expect(idle.pid).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(isDaemonRunning()).toBe(false);
+    daemon = await startDaemon({ port: 0, quiet: true });
+    baseUrl = `http://127.0.0.1:${daemon.port}`;
+  }, 15_000);
+
+  it('浏览器开着（注册表 SSE）→ 空仓也不立刻退，留给前端倒计时', async () => {
+    await daemon.close();
+    const live = await startDaemon({ port: 0, emptyGraceMs: 100, emptyBrowserMs: 30_000, idleCheckMs: 50, quiet: true });
+    const url = `http://127.0.0.1:${live.port}`;
+    const controller = new AbortController();
+    const res = await fetch(`${url}/events`, { signal: controller.signal });
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    // 读一帧确保注册表通道真的挂上了
+    const reader = res.body!.getReader();
+    await reader.read();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(isDaemonRunning()).toBe(true);
+    controller.abort();
+    // 断开后回到「无连接」规则：很快收尾
+    await new Promise((r) => setTimeout(r, 700));
+    expect(isDaemonRunning()).toBe(false);
+    daemon = await startDaemon({ port: 0, quiet: true });
+    baseUrl = `http://127.0.0.1:${daemon.port}`;
+  }, 20_000);
 });
 
 describe('注册表 SSE（项目列表自动刷新）', () => {
@@ -355,5 +413,29 @@ describe('会话标记（marks API）', () => {
     expect(body.cleared).toBeGreaterThan(0);
     const after = (await (await fetch(`${baseUrl}/api/marks?project=${PROJECT}`)).json()) as { marks: unknown[] };
     expect(after.marks).toEqual([]);
+  });
+});
+
+describe('浏览器地址拼装', () => {
+  it('项目 key 带 `/` 时地址直接是路径，只有文件走查询参数', async () => {
+    const { projectUrl, baseUrl } = await import('../src/web/open-browser.js');
+    expect(baseUrl(3316)).toBe('http://localhost:3316/');
+    expect(projectUrl(3316, 'c-thun/raybend')).toBe('http://localhost:3316/c-thun/raybend');
+    expect(projectUrl(3316, 'c-thun/raybend', 'design/editor.pen')).toBe(
+      'http://localhost:3316/c-thun/raybend?file=design%2Feditor.pen',
+    );
+    expect(projectUrl(3316)).toBe('http://localhost:3316/');
+  });
+
+  it('PAINTRESS_NO_OPEN=1 时不真的拉起浏览器', async () => {
+    const { openBrowser } = await import('../src/web/open-browser.js');
+    const prev = process.env['PAINTRESS_NO_OPEN'];
+    process.env['PAINTRESS_NO_OPEN'] = '1';
+    try {
+      expect(openBrowser('http://127.0.0.1:1/')).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env['PAINTRESS_NO_OPEN'];
+      else process.env['PAINTRESS_NO_OPEN'] = prev;
+    }
   });
 });

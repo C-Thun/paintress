@@ -57,15 +57,46 @@ function findUiDist(): string | null {
   return null;
 }
 
+/**
+ * 从 URL 路径段里按最长前缀解析项目。
+ * 项目 key 现在是目录层级本身（`c-thun/raybend`），所以 `/c-thun/raybend`、
+ * `/render/c-thun/raybend/design/editor.pen` 都能在不需要 %2F 转义的情况下命中。
+ * 单段名（`paintress watch myname dir`）同样适用。
+ */
+function resolveProjectPrefix(
+  registry: Registry,
+  segments: readonly string[],
+  maxDepth = 3,
+): { entry: ProjectEntry; rest: string[] } | null {
+  for (let n = Math.min(maxDepth, segments.length); n >= 1; n--) {
+    const key = segments.slice(0, n).map((s) => decodeURIComponent(s)).join('/');
+    const entry = registry.get(key);
+    if (entry) return { entry, rest: segments.slice(n) };
+  }
+  return null;
+}
+
 export interface DaemonOptions {
   port?: number;
-  /** 全部连接断开后多久退出（ms），默认 60s */
+  /**
+   * 没有 agent、也没有浏览器、但仍有人手动 watch 的项目时，多久退出（ms），默认 60s。
+   * 注意：只要还有 agent attach 或浏览器页面开着，就不会进入 idle。
+   */
   idleTimeoutMs?: number;
-  /** 空闲检查间隔（ms），默认 15s */
+  /** 无项目、无 agent、无浏览器时的收尾宽限（ms），默认 3s */
+  emptyGraceMs?: number;
+  /** 浏览器开着但一个项目都没有时，服务端兜底多久退出（ms），默认 30s（正常情况下前端 10s 倒计时会先关） */
+  emptyBrowserMs?: number;
+  /**
+   * 浏览器开着、且本次启动**从未**有过项目（人刚手动 `paintress web`，等 agent 接入）：
+   * 服务端兜底多久退出（ms），默认 10 分钟。这条只防「标签页僵尸」，不当催命符。
+   */
+  manualEmptyMs?: number;
+  /** 空闲检查间隔（ms），默认 2s */
   idleCheckMs?: number;
   /**
-   * agent 自动注册的项目在连接归零后，宽限多久自动退场（ms），默认 45s。
-   * 宽限期用于跨过 agent 崩溃重启的窗口；浏览器看着时永不退场。
+   * agent 自动注册的项目在连接归零后，宽限多久自动退场（ms），默认 5s。
+   * 宽限期用于跨过 agent 崩溃重启的窗口；浏览器看着时不会自动退场。
    */
   autoDetachMs?: number;
   /** 是否向 npm registry 探测新版本（默认关；由 CLI 开启，测试不碰网络） */
@@ -178,9 +209,17 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const versions = new VersionChecker();
   const startedAt = Date.now();
   const idleTimeoutMs = opts.idleTimeoutMs ?? 60_000;
-  const idleCheckMs = opts.idleCheckMs ?? 15_000;
+  // 空仓收尾默认 3s；调用方显式给了更短的 idle 时听它的（否则测试/嵌入场景要白等 3s）
+  const emptyGraceMs = opts.emptyGraceMs ?? Math.min(idleTimeoutMs, 3_000);
+  const emptyBrowserMs = opts.emptyBrowserMs ?? 30_000;
+  const manualEmptyMs = opts.manualEmptyMs ?? 10 * 60_000;
+  /** 本次启动有没有过项目：决定「空仓 + 浏览器开着」是等接入还是收工 */
+  let everHadProjects = false;
+  const idleCheckMs = opts.idleCheckMs ?? 2_000;
   let idleSince: number | null = null;
   let closing = false;
+  /** 最近一次 HTTP 活动：用来判定「浏览器还在不在」而不单靠 SSE 关闭事件 */
+  let lastHttpAt = Date.now();
 
   /**
    * 注册表订阅者（浏览器开着的查看器窗口）。
@@ -189,11 +228,23 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const registryClients = new Set<import('node:http').ServerResponse>();
   /** 控制面长连接：shutdown 时必须主动结束，否则 server.close() 会一直等 agent attach */
   const controlClients = new Set<Socket>();
+  /** agent attach 总数 / 浏览器连接总数（注册表 SSE + 设计稿 SSE） */
+  const agentCount = (): number => registry.all().reduce((n, p) => n + p.agents.size, 0);
+  const browserCount = (): number =>
+    registryClients.size + registry.all().reduce((n, p) => n + p.browsers.size, 0);
   /** 将被关闭的长连接数：agent attach + 设计稿 SSE + 项目列表 SSE */
-  const connectionCount = (): number =>
-    registryClients.size + registry.all().reduce((n, p) => n + p.agents.size + p.browsers.size, 0);
+  const connectionCount = (): number => registryClients.size + registry.all().reduce((n, p) => n + p.agents.size + p.browsers.size, 0);
+  /**
+   * 推注册表快照。事件带全量项目信息：前端不用再拉一次接口，项目增删能同一帧完成，
+   * 动画也因此不会晚一步。列表很小（每个项目只扫一次 shallow 目录），频繁推不心疼。
+   */
   const notifyRegistry = (): void => {
-    const payload = JSON.stringify({ projects: registry.all().length, at: Date.now() });
+    const payload = JSON.stringify({
+      projects: registry.all().map((p) => registry.info(p)),
+      agents: agentCount(),
+      browsers: browserCount(),
+      at: Date.now(),
+    });
     for (const res of registryClients) {
       try {
         res.write(`event: projects\ndata: ${payload}\n\n`);
@@ -224,7 +275,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
    * - 浏览器 SSE 开着时永不退场
    * - 人手动 watch 的项目（owner=manual）不参与自动退场
    */
-  const autoDetachMs = opts.autoDetachMs ?? 45_000;
+  const autoDetachMs = opts.autoDetachMs ?? 5_000;
   const autoDetachTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function cancelAutoDetach(name: string): void {
@@ -313,6 +364,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               });
               break;
             case 'watch': {
+              everHadProjects = true;
               const entry = registry.watch(req.project, req.dir, req.depth, req.owner === 'agent' ? { owner: 'agent' } : {});
               // 人显式 watch 的项目撤回待执行的自动退场
               cancelAutoDetach(entry.name);
@@ -335,6 +387,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               entry.agents.add(token);
               attachToken = { project: req.project, token };
               reply({ ok: true, attached: true, project: req.project });
+              // 让界面立即看到「agent 在位」并撤销倒计时
+              notifyRegistry();
               break;
             }
             case 'detach':
@@ -400,6 +454,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const uiDist = findUiDist();
 
   const httpServer: HttpServer = createHttpServer(async (req, res) => {
+    lastHttpAt = Date.now();
     const url = new URL(req.url ?? '/', 'http://localhost');
     const segments = url.pathname.split('/').filter((s) => s !== '');
 
@@ -450,8 +505,9 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           });
           return;
         }
-        // 解绑项目（查看器项目行的「解绑」）：幂等，已不存在也不算错
-        if (segments[1] === 'projects' && segments.length === 3 && req.method === 'DELETE') {
+        // 解绑项目（查看器项目行的「解绑」）：幂等，已不存在也不算错。
+        // 项目 key 可含 `/`：优先按路径前缀命中，退回单段解码
+        if (segments[1] === 'projects' && req.method === 'DELETE') {
           if (!isTrustedWrite(req)) {
             sendJson(403, { ok: false, error: '缺少 x-paintress 头' });
             return;
@@ -595,15 +651,16 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
       }
 
       // ---------- 渲染页（iframe 用）----------
+      // 两种寻址：`/render/<project>/<relpath>`（project 可含 `/`，按最长前缀命中）
       if (segments[0] === 'render' && segments.length >= 3) {
-        const name = decodeURIComponent(segments[1] ?? '');
-        const entry = registry.get(name);
-        if (!entry) {
+        const hit = resolveProjectPrefix(registry, segments.slice(1));
+        if (hit === null || hit.rest.length === 0) {
           send(404, 'project not found', 'text/plain; charset=utf-8');
           return;
         }
+        const { entry } = hit;
         entry.lastAccess = Date.now();
-        const relPath = segments.slice(2).map(decodeURIComponent).join('/');
+        const relPath = hit.rest.map(decodeURIComponent).join('/');
         const abs = safeJoin(entry.rootReal, relPath);
         if (!abs) {
           send(404, 'file not found', 'text/plain; charset=utf-8');
@@ -613,7 +670,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         const rendered = renderDocument(loaded.doc, { title: relPath });
         // base href 让图像填充等相对资源解析到 /files/<project>/<dir>/
         const dir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/') + 1) : '';
-        const baseHref = `/files/${encodeURIComponent(entry.name)}/${dir
+        const baseHref = `/files/${entry.name.split('/').map(encodeURIComponent).join('/')}/${dir
           .split('/')
           .filter((s) => s !== '')
           .map(encodeURIComponent)
@@ -630,13 +687,13 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
 
       // ---------- 项目内静态资源（图片、字体等）----------
       if (segments[0] === 'files' && segments.length >= 3) {
-        const name = decodeURIComponent(segments[1] ?? '');
-        const entry = registry.get(name);
-        if (!entry) {
+        const hit = resolveProjectPrefix(registry, segments.slice(1));
+        if (hit === null) {
           send(404, 'project not found', 'text/plain; charset=utf-8');
           return;
         }
-        const relPath = segments.slice(2).map(decodeURIComponent).join('/');
+        const { entry } = hit;
+        const relPath = hit.rest.map(decodeURIComponent).join('/');
         const abs = safeJoin(entry.rootReal, relPath);
         if (!abs) {
           send(404, 'file not found', 'text/plain; charset=utf-8');
@@ -677,7 +734,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         const items = projects
           .map((p) => {
             const info = registry.info(p);
-            return `<div class="card"><h2 style="margin:0 0 4px"><a href="/${encodeURIComponent(p.name)}">${esc(p.name)}</a></h2><div class="meta">${esc(info.root)} · ${info.fileCount} 个设计稿 · agent ${info.agentConns} · 浏览器 ${info.browserConns}</div></div>`;
+            const href = `/${p.name.split('/').map(encodeURIComponent).join('/')}`;
+            return `<div class="card"><h2 style="margin:0 0 4px"><a href="${href}">${esc(p.label)}</a></h2><div class="meta">${esc(info.root)} · ${info.fileCount} 个设计稿 · agent ${info.agentConns} · 浏览器 ${info.browserConns}</div></div>`;
           })
           .join('');
         send(
@@ -692,18 +750,18 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         return;
       }
 
-      const projectName = decodeURIComponent(segments[0] ?? '');
-      const entry = registry.get(projectName);
-      if (!entry) {
-        send(404, layout('未找到', `<h1>404</h1><p>未注册的项目：<code>${esc(projectName)}</code></p><p><a href="/">返回</a></p>`));
+      const hit = resolveProjectPrefix(registry, segments);
+      if (hit === null) {
+        send(404, layout('未找到', `<h1>404</h1><p>未注册的项目：<code>${esc(segments.join('/'))}</code></p><p><a href="/">返回</a></p>`));
         return;
       }
+      const { entry } = hit;
       entry.lastAccess = Date.now();
 
-      if (segments.length === 1) {
+      if (hit.rest.length === 0) {
         const files = registry.listDesigns(entry);
         const list = files
-          .map((f) => `<li><a href="/render/${encodeURIComponent(entry.name)}/${f.split('/').map(encodeURIComponent).join('/')}">${esc(f)}</a></li>`)
+          .map((f) => `<li><a href="/render/${entry.name.split('/').map(encodeURIComponent).join('/')}/${f.split('/').map(encodeURIComponent).join('/')}">${esc(f)}</a></li>`)
           .join('');
         send(
           200,
@@ -749,17 +807,47 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     });
   });
 
+  /**
+   * 生命周期策略：控制权在 agent 侧，人不需要管进程在不在。
+   *
+   * - 有 agent attach → 永远活着（agent 正在干活）。
+   * - 没有 agent，但浏览器开着：
+   *     · 还有项目 → 活着；项目归零 → 给前端 10s 倒计时自己走（服务端 emptyBrowserMs 兜底）。
+   * - 没有 agent 也没有浏览器：
+   *     · 还有手动 watch 的项目 → idleTimeoutMs 后关；
+   *     · 一个项目都没有 → 立刻（emptyGraceMs）关。
+   *
+   * 修的是旧逻辑的真 bug：旧代码只在「项目全部 idle」时计数，自动拉起的 daemon
+   * 又写死 `--idle 1h`，于是浏览器早就关了、进程还能挂一小时。
+   */
   const idleTimer = setInterval(() => {
-    if (registry.all().length === 0) {
-      idleSince = idleSince ?? Date.now();
-    } else if (registry.all().every((p) => registry.isIdle(p))) {
-      idleSince = idleSince ?? Date.now();
-    } else {
+    const now = Date.now();
+    const projects = registry.all().length;
+    const agents = agentCount();
+    // 浏览器还“在”的判据：SSE 连接或最近有过 HTTP 请求（标签页冻结/网络断开都会让两者同时失效）
+    const browsing = browserCount() > 0 && now - lastHttpAt < 30_000;
+
+    let threshold: number;
+    if (agents > 0) {
       idleSince = null;
+      changes.prune();
       return;
     }
-    if (idleSince !== null && Date.now() - idleSince >= idleTimeoutMs) {
-      void shutdown('idle');
+    if (browsing) {
+      if (projects > 0) {
+        idleSince = null;
+        changes.prune();
+        return;
+      }
+      // 有过项目 → 是收工（前端 10s 倒计时会先关）；从未有过 → 人在等 agent 接入，别催
+      threshold = everHadProjects ? emptyBrowserMs : manualEmptyMs;
+    } else {
+      threshold = projects > 0 ? idleTimeoutMs : emptyGraceMs;
+    }
+
+    idleSince = idleSince ?? now;
+    if (now - idleSince >= threshold) {
+      void shutdown(projects > 0 ? 'idle' : '无项目');
     }
     changes.prune(); // 顺带清理过期变更记录，避免长驻 daemon 下 Map 无限增长
   }, idleCheckMs);
@@ -773,8 +861,10 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     if (registryTimer !== null) clearTimeout(registryTimer);
     for (const timer of autoDetachTimers.values()) clearTimeout(timer);
     autoDetachTimers.clear();
+    // 先告诉开着的页面「要关了」，前端才能把状态停留在一个说得通的画面上（而不是网络错误）
     for (const client of registryClients) {
       try {
+        client.write(`event: shutdown\ndata: ${JSON.stringify({ reason, at: Date.now() })}\n\n`);
         client.end();
       } catch {
         /* 已断开 */

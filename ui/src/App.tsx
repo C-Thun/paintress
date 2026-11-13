@@ -45,8 +45,32 @@ interface Crumb {
   name?: string;
 }
 
+/** 项目行：`leaving` 用于退场动画（数据先移除，DOM 多留 220ms） */
+interface ProjectRow extends ProjectInfo {
+  leaving?: boolean;
+}
+
 /** 需要二次确认的破坏性动作（两者都不能手滑就执行） */
 type PendingAction = { kind: 'unwatch'; name: string } | { kind: 'shutdown' };
+
+/** 从路径里按最长前缀解析项目（项目 key 带 `/`，如 `c-thun/raybend`） */
+function projectFromPath(pathname: string, list: readonly ProjectInfo[]): string | null {
+  const segs = pathname.split('/').filter((s) => s !== '');
+  for (let n = Math.min(3, segs.length); n >= 1; n--) {
+    const key = segs.slice(0, n).map((s) => decodeURIComponent(s)).join('/');
+    if (list.some((p) => p.name === key)) return key;
+  }
+  return null;
+}
+
+function projectHref(project: string, file: string | null): string {
+  const path = `/${project
+    .split('/')
+    .filter((s) => s !== '')
+    .map(encodeURIComponent)
+    .join('/')}`;
+  return file === null ? path : `${path}?file=${file.split('/').map(encodeURIComponent).join('/')}`;
+}
 
 function cssEscape(s: string): string {
   return typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&');
@@ -54,6 +78,8 @@ function cssEscape(s: string): string {
 
 export default function App() {
   const [projects, setProjects] = createSignal<ProjectInfo[]>([]);
+  /** 侧栏渲染用：含 `leaving` 过渡行的版本（数据源仍是 projects） */
+  const [rows, setRows] = createSignal<ProjectRow[]>([]);
   const [activeProject, setActiveProject] = createSignal<string | null>(null);
   const [files, setFiles] = createSignal<string[]>([]);
   const [activeFile, setActiveFile] = createSignal<string | null>(null);
@@ -72,30 +98,85 @@ export default function App() {
   const [canvasBg, setCanvasBg] = createSignal<CanvasBackground>(initialCanvasBackground());
   const [pending, setPending] = createSignal<PendingAction | null>(null);
   const [closed, setClosed] = createSignal(false);
+  /** 无激活项目时的关窗倒计时（秒）；null = 不显示遮罩 */
+  const [countdown, setCountdown] = createSignal<number | null>(null);
+  /** 本次页面会话是否曾经有过项目：有过的项目全消失才是「agent 收工」，才值得弹倒计时 */
+  let sawProjects = false;
   const [showUpdate, setShowUpdate] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
   const m = (): ReturnType<typeof messages> => messages(lang());
 
   let frameEl: HTMLIFrameElement | undefined;
   let stageEl: HTMLElement | undefined;
+  let boardBarEl: HTMLDivElement | undefined;
   let viewportCtl: ViewportBinding | null = null;
   let persistTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /** frame 名超出固定宽度时打标记：右侧 10px 渐隐（不用省略号，渐隐还能看出后面还有字） */
+  function markOverflow(el: HTMLElement): void {
+    el.classList.toggle('overflow', el.scrollWidth > el.clientWidth + 1);
+  }
+
   function syncUrl(): void {
-    const params = new URLSearchParams();
     const p = activeProject();
     const f = activeFile();
-    if (p) params.set('project', p);
-    if (f) params.set('file', f);
-    const qs = params.toString();
-    history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
+    // 项目 key 本身就带 `/`（c-thun/raybend），地址直接写成路径，不用 ?project= 转义
+    history.replaceState(null, '', p === null ? '/' : projectHref(p, f));
   }
 
   // ---------- 数据加载 ----------
+  /**
+   * 项目列表 → 侧栏行。新增的行带入场动画；消失的行先标 `leaving`，
+   * 220ms 后才真正从 DOM 抽掉。视觉上「项目被 agent 接入 / 收工」自己会说话，
+   * 人不需要去点刷新或猜现在绑没绑。
+   */
+  let leaveTimer: ReturnType<typeof setTimeout> | undefined;
+  function applyProjects(next: ProjectInfo[]): void {
+    const prev = rows();
+    const prevByName = new Map(prev.map((r) => [r.name, r]));
+    const nextKeys = new Set(next.map((p) => p.name));
+    const merged: ProjectRow[] = [];
+    for (const p of next) {
+      const old = prevByName.get(p.name);
+      // 引用相同 → <For> 认为这一行没变，不会重建 DOM，也不会重播入场动画
+      const unchanged =
+        old !== undefined &&
+        old.leaving !== true &&
+        old.fileCount === p.fileCount &&
+        old.agentConns === p.agentConns &&
+        old.depth === p.depth &&
+        old.label === p.label &&
+        old.root === p.root;
+      merged.push(unchanged ? old : { ...p });
+    }
+    let hasLeaving = false;
+    for (const old of prev) {
+      if (old.leaving === true) {
+        if (!nextKeys.has(old.name)) {
+          merged.push(old);
+          hasLeaving = true;
+        }
+        continue;
+      }
+      if (!nextKeys.has(old.name)) {
+        merged.push({ ...old, leaving: true });
+        hasLeaving = true;
+      }
+    }
+    // 新出现的行排在最前（合并列表时已按 next 顺序在前；`leaving` 行追加在尾）
+    setRows(merged);
+    if (hasLeaving) {
+      clearTimeout(leaveTimer);
+      leaveTimer = setTimeout(() => setRows((list) => list.filter((r) => r.leaving !== true)), 240);
+    }
+    if (next.length > 0) sawProjects = true;
+  }
+
   async function loadProjects(): Promise<void> {
     try {
       const res = await fetchProjects();
       setProjects(res.projects);
+      applyProjects(res.projects);
       setDaemonInfo({ pid: res.pid, version: res.version, latest: res.latest ?? null, connections: res.connections });
       setError(null);
     } catch (cause) {
@@ -246,9 +327,42 @@ export default function App() {
   }
 
   onMount(() => {
-    // 注册表通道：项目增删 / 目录里新增设计稿 → 列表自动更新（不需要 F5）
+    // 注册表通道：项目增删 / 目录里新增设计稿 → 列表自动更新（不需要 F5）。
+    // 事件里已经带全量项目信息，所以能同一帧把行加/删掉，不必再等一次接口往返。
     const registrySource = new EventSource(registryEventsUrl());
-    registrySource.addEventListener('projects', () => void refreshRegistry());
+    registrySource.addEventListener('projects', (ev) => {
+      const data = (ev as MessageEvent<string>).data;
+      let next: ProjectInfo[] | null = null;
+      try {
+        const parsed = JSON.parse(data) as { projects?: ProjectInfo[] };
+        if (Array.isArray(parsed.projects)) next = parsed.projects;
+      } catch {
+        /* 旧 daemon 只带数量：退回拉一次接口 */
+      }
+      if (next !== null) {
+        setProjects(next);
+        applyProjects(next);
+        const p = activeProject();
+        if (p !== null && !next.some((x) => x.name === p)) {
+          // 当前项目已被 agent 收走：退回总页，不在一个死项目上停留
+          setActiveProject(null);
+          setActiveFile(null);
+          setFiles([]);
+          setSelectedId(null);
+          setCrumbs([]);
+          syncUrl();
+        } else {
+          void refreshRegistry();
+        }
+      } else {
+        void refreshRegistry();
+      }
+    });
+    // daemon 要关了（可能是倒计时结束、也可能是 agent 侧收尾）：把画面停在一个说得通的状态
+    registrySource.addEventListener('shutdown', () => {
+      setCountdown(null);
+      setClosed(true);
+    });
     onCleanup(() => registrySource.close());
 
     // 首次 /api/projects 只启动后台 npm 探测并返回旧值；4s 后再取才能看到结果。
@@ -288,19 +402,91 @@ export default function App() {
       window.removeEventListener('keyup', onKeyUp);
     });
 
+    // frame 列表：滚轮直接横向滚。frame 一多，底下那条细滚动条根本不好抓，
+    // 而滚轮是手上已有的动作，不需要额外学。
+    const onBoardWheel = (ev: WheelEvent): void => {
+      const bar = boardBarEl;
+      if (bar === undefined) return;
+      const target = ev.target as Node | null;
+      if (target === null || !bar.contains(target)) return;
+      const delta = ev.deltaY !== 0 ? ev.deltaY : ev.deltaX;
+      if (delta === 0) return;
+      const max = bar.scrollWidth - bar.clientWidth;
+      if (max <= 0) return;
+      ev.preventDefault();
+      bar.scrollLeft = Math.max(0, Math.min(max, bar.scrollLeft + delta));
+    };
+    window.addEventListener('wheel', onBoardWheel, { passive: false });
+    onCleanup(() => window.removeEventListener('wheel', onBoardWheel));
+
     const params = new URLSearchParams(location.search);
     void (async () => {
       await loadProjects();
-      const p = params.get('project');
-      if (p) {
+      // 新地址：项目写在路径里（`/c-thun/raybend?file=design/editor.pen`）
+      // 旧地址：`?project=c-thun-raybend&file=...` 仍然兼容，读进来后回写成新形式
+      const fromPath = projectFromPath(location.pathname, projects());
+      const legacy = params.get('project');
+      const p = fromPath ?? (legacy !== null && projects().some((x) => x.name === legacy) ? legacy : null);
+      if (p !== null) {
         await openProject(p);
         const f = params.get('file');
         // 走 openFile 而不是直接 setActiveFile：后者不会回写 URL，
         // 刷新后 file 参数会丢（深链只剩 project）
         if (f) openFile(f);
+        else syncUrl();
       }
     })();
   });
+
+  // ---------- 无激活项目 → 10s 倒计时关窗（人不需要自己去关页面/杀进程）----------
+  let tickTimer: ReturnType<typeof setInterval> | undefined;
+  onCleanup(() => clearInterval(tickTimer));
+
+  function stopCountdown(): void {
+    clearInterval(tickTimer);
+    tickTimer = undefined;
+    setCountdown(null);
+  }
+
+  async function shutdownAndLeave(): Promise<void> {
+    stopCountdown();
+    try {
+      await shutdownDaemon();
+    } catch {
+      /* 已经不可达也算目的达成 */
+    }
+    setClosed(true);
+    // 只有脚本打开的标签才能被关；做不到就留在「服务已关闭」页，不报错（close() 失败不会抛）
+    window.close();
+  }
+
+  createEffect(
+    on(
+      () => projects().length,
+      (n) => {
+        if (closed()) return;
+        // 有项目（或被 attach 重新拉进来）→ 撤销倒计时
+        if (n > 0) {
+          if (countdown() !== null) stopCountdown();
+          return;
+        }
+        // 从没进过项目就不弹（刚手动起 daemon、等 agent 接入的那几秒不该被吓一跳）
+        if (!sawProjects) return;
+        if (countdown() !== null) return;
+        setCountdown(10);
+        clearInterval(tickTimer);
+        tickTimer = setInterval(() => {
+          const left = (countdown() ?? 0) - 1;
+          if (left <= 0) {
+            stopCountdown();
+            void shutdownAndLeave();
+            return;
+          }
+          setCountdown(left);
+        }, 1000);
+      },
+    ),
+  );
 
   // ---------- iframe 内交互（同源访问，无需 allow-scripts）----------
   const frameDoc = (): Document | null => frameEl?.contentDocument ?? null;
@@ -396,18 +582,31 @@ export default function App() {
     }
   }
 
+  /**
+   * 画板列表：优先用浏览器量出来的真实几何。
+   *
+   * 自动排版的设计稿（Pencil 里 frame 高度由内容撑开）在文件里根本没有 height，
+   * `data-board-*` 会报 0；只有量真实盒子才知道这一页多高，否则「跳到某页」会框到空气。
+   */
   function readBoards(): Board[] {
     const doc = frameDoc();
     if (!doc) return [];
+    const canvas = doc.querySelector<HTMLElement>('.ptr-canvas');
+    const cr = canvas?.getBoundingClientRect();
+    const z = viewportCtl?.get().z ?? 1;
     return Array.from(doc.querySelectorAll<HTMLElement>('[data-board]')).map((el) => {
       const d = el.dataset;
+      const r = cr === undefined ? null : el.getBoundingClientRect();
+      const measured = r !== null && z > 0
+        ? { x: (r.left - cr!.left) / z, y: (r.top - cr!.top) / z, w: r.width / z, h: r.height / z }
+        : null;
       return {
         id: d['nodeId'] ?? '',
         ...(d['boardName'] === undefined ? {} : { name: d['boardName'] }),
-        x: Number(d['boardX'] ?? 0),
-        y: Number(d['boardY'] ?? 0),
-        w: Number(d['boardW'] ?? 0),
-        h: Number(d['boardH'] ?? 0),
+        x: measured?.x ?? Number(d['boardX'] ?? 0),
+        y: measured?.y ?? Number(d['boardY'] ?? 0),
+        w: measured !== null && measured.w > 0 ? measured.w : Number(d['boardW'] ?? 0),
+        h: measured !== null && measured.h > 0 ? measured.h : Number(d['boardH'] ?? 0),
       };
     });
   }
@@ -632,23 +831,27 @@ export default function App() {
 
         <section class="section">
           <h2>{m().projects}</h2>
+          {/* 用 rows 而不是 projects：项目被收走时数据先空、DOM 还要留 240ms 播退场动画 */}
           <Show
-            when={projects().length > 0}
+            when={rows().length > 0}
             fallback={
               <p class="empty">
-                {m().noProjects}
+                {m().waitingForAgent}
                 <br />
                 <code>paintress watch &lt;name&gt; &lt;dir&gt;</code>
               </p>
             }
           >
             <ul class="list">
-              <For each={projects()}>
+              <For each={rows()}>
                 {(p) => (
-                  <li class="row">
+                  <li class="row" classList={{ leaving: p.leaving === true }}>
                     <button class="item" classList={{ active: activeProject() === p.name }} onClick={() => void openProject(p.name)}>
-                      <span class="item-name">{p.name}</span>
-                      <span class="item-meta">{m().projectFiles(p.fileCount)}</span>
+                      <span class="item-name">{p.label ?? p.name}</span>
+                      <span class="item-meta">
+                        {m().projectFiles(p.fileCount)}
+                        {p.agentConns > 0 ? <span class="dot" title={m().agentOnline} /> : null}
+                      </span>
                     </button>
                     <button class="row-action" title={m().unwatch} aria-label={`${m().unwatch} ${p.name}`} onClick={() => askUnwatch(p.name)}>
                       ×
@@ -747,9 +950,9 @@ export default function App() {
               </For>
             }>
               <Show when={activeProject() !== null && activeFile() !== null}>
-                <code>
-                  {activeProject()}/{activeFile()}
-                </code>
+                <code>{projects().find((p) => p.name === activeProject())?.label ?? activeProject()}</code>
+                <span class="sep">/</span>
+                <code>{activeFile()}</code>
               </Show>
             </Show>
           </div>
@@ -790,19 +993,32 @@ export default function App() {
         >
           <Show when={boards().length > 1}>
             <div class="boardbar">
+              {/* 「全部」不参与滚动：横向翻到后面几个画板时，回看整张画布仍然是一次点击 */}
               <button class="board" classList={{ active: activeBoard() === null }} onClick={() => focusBoard(null)}>
                 {m().allBoards}
               </button>
-              <For each={boards()}>
+              <div
+                class="boardbar-scroll"
+                ref={(el) => {
+                  boardBarEl = el;
+                }}
+              >
+                <For each={boards()}>
                 {(b) => (
                   <button class="board" classList={{ active: activeBoard() === b.id }} onClick={() => focusBoard(b.id)}>
-                    {b.name ?? `#${b.id}`}
+                    <span
+                      class="board-name"
+                      ref={(el) => queueMicrotask(() => markOverflow(el))}
+                    >
+                      {b.name ?? `#${b.id}`}
+                    </span>
                     <span class="board-size">
                       {Math.round(b.w)}×{Math.round(b.h)}
                     </span>
                   </button>
                 )}
-              </For>
+                </For>
+              </div>
             </div>
           </Show>
           <iframe
@@ -833,6 +1049,19 @@ export default function App() {
           <div class="modal" role="status">
             <h3>{m().serverClosed}</h3>
             <p class="modal-body">{m().serverClosedHint}</p>
+          </div>
+        </div>
+      </Show>
+
+      {/* 无激活项目：10s 倒计时遮罩（agent 重启接入会自动撤销，人不用管） */}
+      <Show when={countdown() !== null && !closed()}>
+        <div class="modal-backdrop countdown-backdrop">
+          <div class="modal countdown" role="alertdialog" aria-live="polite">
+            <h3>{m().noActiveProjects}</h3>
+            <p class="modal-body">{m().closingIn(countdown() ?? 0)}</p>
+            <div class="countdown-track" aria-hidden="true">
+              <span class="countdown-fill" style={{ '--left': `${((countdown() ?? 0) / 10) * 100}%` }} />
+            </div>
           </div>
         </div>
       </Show>
