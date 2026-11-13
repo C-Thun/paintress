@@ -260,12 +260,16 @@ styles:
         rotation:
           type: num_or_var
           default: 0
-          desc: 度，逆时针，0 指向上
+          desc: >-
+            度，0 = 从左往右（方向指向右），正值顺时针（Figma 手感）。
+            0 → 向右、90 → 向上、180 → 向左、270 → 向下；
+            CSS 角 = 90 - rotation。conic（angular）同此角度。
         colors:
           type: array
           item:
             color: color_or_var
             position: num_or_var
+            desc: position 沿渐变轴归一化，0 在起端、1 在末端
         opacity: num_or_var
       image:
         url:

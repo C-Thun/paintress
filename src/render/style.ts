@@ -36,20 +36,45 @@ function stopsToCssList(colors: unknown, vars: VarResolver): string | undefined 
   return parts.length > 0 ? parts.join(', ') : undefined;
 }
 
-/** .pen 逆时针度（0=上，90=左）→ CSS 角（0=上，顺时针正） */
+/**
+ * .pen/.ptr 渐变角度 → CSS 角（度）。
+ *
+ * 基准：`0` = 从左往右（渐变方向指向右），正值顺时针（Figma 那套手感）。
+ * 所以 0 → 90deg（to right）、90 → 0deg（to top）、180 → 270deg（to left）、270 → 180deg（to bottom）。
+ *
+ * 为什么不用「0 指向上」：设计稿里可见的渐变只剩「流光带」（透明→近白→透明，
+ * 从左往右飘的光带），它只有按 0=向右 才是一条竖光带；按 0=向上 会变成横着的一大块。
+ * 深色「渐隐覆盖」类节点是「同色→自身透明」，两条约定看不出差别，不必为它们拗。
+ */
 function penAngleToCss(deg: number): string {
-  const normalized = ((deg % 360) + 360) % 360;
-  return `${((360 - normalized) % 360).toFixed(1)}deg`;
+  const normalized = ((90 - deg) % 360 + 360) % 360;
+  return `${normalized.toFixed(1)}deg`;
 }
 
-function normCenter(c: unknown): { x: string; y: string } {
+function normCenter(c: unknown, vars?: VarResolver): { x: string; y: string } {
   if (isRecord(c)) {
-    const x = c['x'], y = c['y'];
-    if (typeof x === 'number' && typeof y === 'number') {
-      return { x: `${(x * 100).toFixed(2)}%`, y: `${(y * 100).toFixed(2)}%` };
+    const rx = vars?.resolveNum(c['x'] as number | string) ?? (typeof c['x'] === 'number' ? c['x'] : undefined);
+    const ry = vars?.resolveNum(c['y'] as number | string) ?? (typeof c['y'] === 'number' ? c['y'] : undefined);
+    if (rx !== undefined && ry !== undefined) {
+      return { x: `${(rx * 100).toFixed(2)}%`, y: `${(ry * 100).toFixed(2)}%` };
     }
   }
   return { x: '50%', y: '50%' };
+}
+
+/**
+ * 径向渐变的椭圆直径（归一化到自身包围盒）→ CSS `ellipse <rx> <ry>`。
+ * 缺省返回 null（用 CSS 默认的 farthest-corner）；`{height:1}` 这类只写一边的，
+ * 另一边按正方形处理（与 Pencil 的径向渐变一致）。
+ */
+function normSize(size: unknown, vars: VarResolver): string | null {
+  if (!isRecord(size)) return null;
+  const rw = vars.resolveNum(size['width'] as number | string);
+  const rh = vars.resolveNum(size['height'] as number | string);
+  if (rw === undefined && rh === undefined) return null;
+  const w = rw ?? rh ?? 1;
+  const h = rh ?? rw ?? 1;
+  return `${(w * 100).toFixed(2)}% ${(h * 100).toFixed(2)}%`;
 }
 
 /** fill 集 → background 系列声明。纯色取「最后绘制的」作 background-color（顶层语义） */
@@ -65,6 +90,8 @@ export function fillsToCss(fillsRaw: unknown, vars: VarResolver, warnings: Warni
       continue;
     }
     if (!isRecord(entry)) continue;
+    // fills 是叠放列表：`enabled:false` 的层在 Pencil 里不画，别把被关掉的层画上去
+    if (vars.resolveBool(entry['enabled'] as boolean | string) === false) continue;
     const kind = entry['type'];
     if (kind === 'color') {
       bgColor = colorFromFillEntry(entry, vars);
@@ -79,8 +106,14 @@ export function fillsToCss(fillsRaw: unknown, vars: VarResolver, warnings: Warni
       if (gType === 'linear') {
         bgImages.push(`linear-gradient(${penAngleToCss(rot)}, ${stops})`);
       } else if (gType === 'radial') {
-        const c = normCenter(entry['center']);
-        bgImages.push(`radial-gradient(ellipse at ${c.x} ${c.y}, ${stops})`);
+        // spec：center 归一化到自身包围盒（默认 0.5/0.5），size 是椭圆直径（默认整框）
+        const c = normCenter(entry['center'], vars);
+        const sz = normSize(entry['size'], vars);
+        bgImages.push(
+          sz === null
+            ? `radial-gradient(ellipse at ${c.x} ${c.y}, ${stops})`
+            : `radial-gradient(ellipse ${sz} at ${c.x} ${c.y}, ${stops})`,
+        );
       } else if (gType === 'angular') {
         bgImages.push(`conic-gradient(from ${penAngleToCss(rot)} at 50% 50%, ${stops})`);
       } else {
@@ -117,17 +150,45 @@ export function fillsToCss(fillsRaw: unknown, vars: VarResolver, warnings: Warni
   return decls;
 }
 
-/** stroke → border 系列。v1 只支持纯色、均匀或四边宽度；alignment 非 inner 时警告 */
+/**
+ * stroke → CSS。
+ *
+ * 对齐方式决定用哪套 CSS：
+ * - `inner`（默认）：`border` 画在盒子内侧 —— 与 Pencil 的 inner 一致；
+ * - `outer`：`outline` 画在外侧，且不占布局（不会把内容挤小）；
+ * - `center`：`outline` + 负 offset 半个线宽，线心落在盒子边界上。
+ *
+ * 旧实现一律按 border 画并只发警告，`outer` 的线会整体偏进 1–2px；
+ * 设计稿里 outer 比 inner 还多（editor.pen 76 : 26），值得按真实语义画。
+ */
 export function strokeToCss(node: AnyNode, vars: VarResolver, warnings: Warnings, what: string): CSSDecl[] {
   const stroke = node['stroke'];
   if (stroke === undefined) return [];
   const entries = Array.isArray(stroke) ? stroke : [stroke];
-  const firstColor = entries.map((e) => colorFromFillEntry(e, vars)).find((c) => c !== undefined);
+  const enabled = entries.filter((e) => !(isRecord(e) && e['enabled'] === false));
+  if (enabled.length === 0) return [];
+  const firstColor = enabled.map((e) => colorFromFillEntry(e, vars)).find((c) => c !== undefined);
+  if (firstColor === undefined) return [];
   const decls: CSSDecl[] = [];
-  if (firstColor !== undefined) decls.push(['border-color', firstColor]);
-  if (entries.length > 1) warnings.push(`${what}: 多层描边仅渲染第一层`);
+  if (enabled.length > 1) warnings.push(`${what}: 多层描边仅渲染第一层`);
 
+  const alignRaw = node['strokeAlignment'];
+  const align = alignRaw === 'outer' || alignRaw === 'center' ? alignRaw : 'inner';
   const widthRaw = node['strokeWidth'];
+
+  // 四边独立宽度只在 border 上表达得干净；outline 不支持逐边，退回 border + 警告
+  if (isRecord(widthRaw) && align !== 'inner') {
+    warnings.push(`${what}: 逐边描边宽度 + strokeAlignment=${align} 暂按 inner（CSS border）渲染`);
+  }
+
+  if (!isRecord(widthRaw) && align !== 'inner') {
+    const w = vars.resolveNum(widthRaw as number | string) ?? 1;
+    decls.push(['outline', `${w}px solid ${firstColor}`]);
+    decls.push(['outline-offset', align === 'outer' ? '0' : `${-w / 2}px`]);
+    return decls;
+  }
+
+  decls.push(['border-color', firstColor]);
   if (typeof widthRaw === 'number') {
     decls.push(['border-width', `${widthRaw}px`]);
     decls.push(['border-style', 'solid']);
@@ -141,14 +202,9 @@ export function strokeToCss(node: AnyNode, vars: VarResolver, warnings: Warnings
       }
     }
     decls.push(...sides);
-  } else if (firstColor !== undefined) {
+  } else {
     decls.push(['border-width', '1px']);
     decls.push(['border-style', 'solid']);
-  }
-
-  const align = node['strokeAlignment'];
-  if (align === 'outer' || align === 'center') {
-    warnings.push(`${what}: strokeAlignment=${String(align)} 暂按 inner（CSS border）语义渲染`);
   }
   return decls;
 }
@@ -210,14 +266,30 @@ export function textToCss(node: AnyNode, vars: VarResolver, warnings: Warnings):
   if (vars.resolveBool(node['underline'] as boolean | string)) deco.push('underline');
   if (vars.resolveBool(node['strikethrough'] as boolean | string)) deco.push('line-through');
   if (deco.length > 0) decls.push(['text-decoration', deco.join(' ')]);
-  if (node['textAlignVertical'] !== undefined && node['textAlignVertical'] !== 'top') {
-    warnings.push('textAlignVertical 暂按 top 渲染');
+  // 垂直对齐（spec: text_align_v top/middle/bottom）。文本内容作为匿名 flex item，
+  // 用 column + justify-content 做块内垂直对齐；text-align 仍负责水平对齐
+  const vaRaw = node['textAlignVertical'];
+  const va = typeof vaRaw === 'string' ? vars.resolve(vaRaw) : undefined;
+  if (va === 'middle' || va === 'bottom') {
+    decls.push(['display', 'flex'], ['flex-direction', 'column'], ['justify-content', va === 'middle' ? 'center' : 'flex-end']);
+  } else if (va !== undefined && va !== 'top') {
+    warnings.push(`${node['id']}: textAlignVertical=${va} 不在 top/middle/bottom 内，按 top 渲染`);
   }
-  // 文字颜色：fill 取首个纯色
-  const fillsRaw = node['fill'];
-  const entries = Array.isArray(fillsRaw) ? fillsRaw : fillsRaw !== undefined ? [fillsRaw] : [];
-  const color = entries.map((e) => colorFromFillEntry(e, vars)).find((c) => c !== undefined);
-  if (color !== undefined) decls.push(['color', color]);
+  // 文字颜色：纯色 → color；渐变 → 背景裁切到字形（background-clip: text）
+  const fillDecls = fillsToCss(node['fill'], vars, warnings, 'text');
+  const image = fillDecls.find(([p]) => p === 'background-image');
+  const color = fillDecls.find(([p]) => p === 'background-color')?.[1];
+  if (image !== undefined) {
+    decls.push(image);
+    decls.push(['-webkit-background-clip', 'text']);
+    decls.push(['background-clip', 'text']);
+    // color:transparent 与 -webkit-text-fill-color:transparent 双写：
+    // 前者是标准写法，后者兜住老版 Safari/Chrome 的裁切实现
+    decls.push(['color', 'transparent']);
+    decls.push(['-webkit-text-fill-color', 'transparent']);
+  } else if (color !== undefined) {
+    decls.push(['color', color]);
+  }
   // 增长模式
   const growth = node['textGrowth'];
   if (growth === 'auto') decls.push(['white-space', 'nowrap']);

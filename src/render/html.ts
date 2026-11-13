@@ -3,7 +3,7 @@ import {
   fillsToCss, strokeToCss, effectsToCss, textToCss, commonToCss, cornerRadiusToCss,
   type CSSDecl,
 } from './style.js';
-import { getLucideIcon } from './icons.js';
+import { getLucideIcon, resolveIconName } from './icons.js';
 import type { PenNode } from '../schema/index.js';
 
 /**
@@ -135,8 +135,11 @@ function layoutDecls(node: AnyNode, vars: VarResolver): { decls: CSSDecl[]; effe
     if (jc === 'start' || jc === 'center' || jc === 'end') decls.push(['justify-content', jc]);
     else if (jc === 'space_between') decls.push(['justify-content', 'space-between']);
     else if (jc === 'space_around') decls.push(['justify-content', 'space-around']);
+    // spec: alignItems 默认 start；CSS 默认 stretch 会把子节点拉满交叉轴，必须显式覆盖
     const ai = node['alignItems'];
-    if (ai === 'start' || ai === 'center' || ai === 'end') decls.push(['align-items', ai]);
+    if (ai === 'start') decls.push(['align-items', 'flex-start']);
+    else if (ai === 'center' || ai === 'end') decls.push(['align-items', ai === 'end' ? 'flex-end' : 'center']);
+    else decls.push(['align-items', 'flex-start']);
   }
   return { decls, effective };
 }
@@ -205,6 +208,10 @@ function renderNode(
   extraAttrs: readonly string[] = [],
 ): string {
   const type = String(node['type'] ?? '?');
+  // 节点可以锁主题（`theme: {mode, density}`）：沿子树覆盖，变量取对应主题项
+  const scoped = isRecord(node['theme']) ? vars.withTheme(node['theme']) : vars;
+  // spec: enabled 默认 true，false = 显隐（设计稿里常用作「开关式」隐藏辅助层）
+  if (scoped.resolveBool(node['enabled'] as boolean | string) === false) return '';
   const label = typeof node['name'] === 'string' && node['name'] !== '' ? `${type}: ${String(node['name'])}` : type;
   const positioned = parentLayout === 'none' || node['layoutPosition'] === 'absolute';
 
@@ -215,43 +222,50 @@ function renderNode(
   const css: CSSDecl[] = [];
   if (positioned) {
     css.push(['position', 'absolute']);
-    const x = numericSize(node['x'], vars);
-    const y = numericSize(node['y'], vars);
+    const x = numericSize(node['x'], scoped);
+    const y = numericSize(node['y'], scoped);
     css.push(['left', `${x ?? 0}px`], ['top', `${y ?? 0}px`]);
+  } else {
+    // 非绝对定位节点也要成为 containing block：否则子节点的 layoutPosition=absolute
+    // 会越过它，锚到最近的祖先（画板），坐标语义整个错位
+    css.push(['position', 'relative']);
   }
-  const { decls: layoutCss, effective } = layoutDecls(node, vars);
+  const { decls: layoutCss, effective } = layoutDecls(node, scoped);
   css.push(...layoutCss);
-  css.push(...sizeDecls(node['width'], node['height'], positioned, parentLayout, vars, warnings, label));
-  css.push(...commonToCss(node, vars));
+  // spec：布局子节点保持自身量出尺寸，不参与收缩（CSS 默认 flex-shrink:1 会把文字压成竖排）
+  if (parentLayout !== 'none' && !positioned) css.push(['flex-shrink', '0']);
+  css.push(...sizeDecls(node['width'], node['height'], positioned, parentLayout, scoped, warnings, label));
+  css.push(...commonToCss(node, scoped));
 
   // 文本节点：fill 即字色（textToCss 内处理），不再走 fillsToCss
-  if (type !== 'text') css.push(...fillsToCss(node['fill'], vars, warnings, label));
-  css.push(...strokeToCss(node, vars, warnings, label));
-  css.push(...effectsToCss(node['effect'], vars, warnings, label));
+  if (type !== 'text') css.push(...fillsToCss(node['fill'], scoped, warnings, label));
+  css.push(...strokeToCss(node, scoped, warnings, label));
+  css.push(...effectsToCss(node['effect'], scoped, warnings, label));
 
   let inner = '';
   switch (type) {
     case 'text': {
-      css.push(...textToCss(node, vars, warnings));
-      const content = typeof node['content'] === 'string' ? vars.resolve(node['content']) : '';
+      css.push(...textToCss(node, scoped, warnings));
+      const content = typeof node['content'] === 'string' ? scoped.resolve(node['content']) : '';
       inner = escapeHtml(content);
       break;
     }
     case 'icon':
     case 'icon_font': {
-      const colorCss = fillsToCss(node['fill'], vars, warnings, label).find(([p]) => p === 'background-color');
+      const colorCss = fillsToCss(node['fill'], scoped, warnings, label).find(([p]) => p === 'background-color');
       if (colorCss) css.push(['color', colorCss[1]], ['background', 'transparent']);
       // icon_font 是上游工具的写法（iconFontName / iconFontFamily），与 icon 语义等价
       const fontVariant = type === 'icon_font';
       const libField = fontVariant ? node['iconFontFamily'] : node['library'];
       const nameField = fontVariant ? node['iconFontName'] : node['icon'];
       const lib = typeof libField === 'string' && libField !== '' ? libField : 'lucide';
-      const iconName = typeof nameField === 'string' ? vars.resolve(nameField) : '';
-      let svg: string | null = null;
-      if (lib === 'lucide' || lib === 'feather') {
-        svg = getLucideIcon(iconName, warnings);
-      } else {
-        warnings.push(`${label}: 图标库 "${lib}" 暂只支持 lucide/feather，渲染为占位框`);
+      const iconName = typeof nameField === 'string' ? scoped.resolve(nameField) : '';
+      // 非 lucide 库先做别名映射（Material Symbols → lucide）：
+      // 形状略有出入也好过整块虚线占位框——界面里的关键操作图标不该全是空框
+      const lucideName = resolveIconName(lib, iconName);
+      const svg = iconName === '' ? null : getLucideIcon(lucideName, warnings);
+      if (svg === null && lucideName === iconName && lib !== 'lucide' && lib !== 'feather') {
+        warnings.push(`${label}: 图标库 "${lib}" 的 "${iconName}" 没有可用的 lucide 等价图标，渲染为占位框`);
       }
       inner = svg
         ? svg.replace('<svg', '<svg style="width:100%;height:100%;display:block"')
@@ -259,23 +273,23 @@ function renderNode(
       break;
     }
     case 'note': {
-      const color = fillsToCss(node['fill'] ?? node['color'] ?? '#FEE484', vars, warnings, label);
+      const color = fillsToCss(node['fill'] ?? node['color'] ?? '#FEE484', scoped, warnings, label);
       const bg = color.find(([p]) => p === 'background-color')?.[1] ?? '#FEE484';
       css.push(['background', bg], ['padding', '8px 10px'], ['color', '#292524'], ['font', '12px/1.5 system-ui,sans-serif'], ['border-radius', '4px'], ['overflow', 'hidden']);
-      const content = typeof node['content'] === 'string' ? vars.resolve(node['content']) : '';
+      const content = typeof node['content'] === 'string' ? scoped.resolve(node['content']) : '';
       inner = escapeHtml(content);
       break;
     }
     case 'ellipse': {
       css.push(['border-radius', '50%']);
-      const inner2 = vars.resolveNum(node['innerRadius'] as number | string);
+      const inner2 = scoped.resolveNum(node['innerRadius'] as number | string);
       if (inner2 !== undefined && inner2 > 0) warnings.push(`${label}: innerRadius 环形暂按实心椭圆渲染`);
-      const sweep = vars.resolveNum(node['sweepAngle'] as number | string);
+      const sweep = scoped.resolveNum(node['sweepAngle'] as number | string);
       if (sweep !== undefined && sweep !== 360) warnings.push(`${label}: 弧形（sweepAngle=${sweep}）暂按整圆渲染`);
       break;
     }
     case 'polygon': {
-      const count = vars.resolveNum(node['polygonCount'] as number | string);
+      const count = scoped.resolveNum(node['polygonCount'] as number | string);
       const n = count ?? 3;
       if (count === undefined) warnings.push(`${label}: polygonCount 缺省按 3 渲染`);
       if (node['cornerRadius'] !== undefined) warnings.push(`${label}: 多边形圆角暂忽略`);
@@ -283,9 +297,9 @@ function renderNode(
       break;
     }
     case 'path': {
-      css.push(...cornerRadiusToCss(node['cornerRadius'], vars));
+      css.push(...cornerRadiusToCss(node['cornerRadius'], scoped));
       const d = typeof node['geometry'] === 'string' ? node['geometry'] : '';
-      const color = fillsToCss(node['fill'], vars, warnings, label).find(([p]) => p === 'background-color')?.[1] ?? '#000000';
+      const color = fillsToCss(node['fill'], scoped, warnings, label).find(([p]) => p === 'background-color')?.[1] ?? '#000000';
       const vbRaw = node['viewBox'];
       const vb = Array.isArray(vbRaw) && vbRaw.length === 4 && vbRaw.every((v) => typeof v === 'number') ? (vbRaw as number[]) : [0, 0, 100, 100];
       inner =
@@ -297,7 +311,7 @@ function renderNode(
     case 'group':
     case 'rectangle':
     default: {
-      css.push(...cornerRadiusToCss(node['cornerRadius'], vars));
+      css.push(...cornerRadiusToCss(node['cornerRadius'], scoped));
       if (type === 'group' && node['effect'] !== undefined) {
         // group 无 fill/stroke，仅效果（spec CanHaveEffects）
       }
@@ -307,7 +321,7 @@ function renderNode(
 
   const kidsRaw = node['children'];
   const childrenHtml = Array.isArray(kidsRaw)
-    ? kidsRaw.filter(isRecord).map((k) => renderNode(k, effective, vars, warnings)).join('')
+    ? kidsRaw.filter(isRecord).map((k) => renderNode(k, effective, scoped, warnings)).join('')
     : '';
 
   const cssStr = css.map(([p, v]) => `${p}:${v}`).join(';');
@@ -359,5 +373,12 @@ export function boardBoxes(nodes: PenNode[], vars: VarResolver): BoardBox[] {
 
 /** 渲染整棵（已展开的）树：顶层节点在画布上绝对定位，并带画布元数据 */
 export function renderTree(nodes: PenNode[], vars: VarResolver, warnings: Warnings): string {
-  return nodes.filter(isRecord).map((n) => renderNode(n, 'none', vars, warnings, boardAttrs(n, vars))).join('');
+  return nodes
+    .filter(isRecord)
+    .map((n) => {
+      // 画板几何也要按它自己的主题算（light/loose 板子的坐标可能引用主题变量）
+      const scoped = isRecord(n['theme']) ? vars.withTheme(n['theme']) : vars;
+      return renderNode(n, 'none', vars, warnings, boardAttrs(n, scoped));
+    })
+    .join('');
 }
