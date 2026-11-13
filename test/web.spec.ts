@@ -14,6 +14,15 @@ let daemon: DaemonHandle;
 let projectDir: string;
 let baseUrl: string;
 
+/** 等 daemon 真的退干净（socket 消失）；固定 sleep 在慢机器上会误报 */
+async function waitUntilGone(timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (isDaemonRunning()) {
+    if (Date.now() > deadline) throw new Error(`daemon 在 ${timeoutMs}ms 内没有退出`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), 'paintress-home-'));
   process.env['PAINTRESS_HOME'] = home;
@@ -198,6 +207,20 @@ describe('HTTP 路由', () => {
   });
 });
 
+describe('关停契约', () => {
+  it('close() 可等待：并发关停不会提前 resolve，关完能立刻起新的', async () => {
+    await daemon.close();
+    const d = await startDaemon({ port: 0, idleTimeoutMs: 10 * 60_000, idleCheckMs: 50, quiet: true });
+    // 两个调用同时关：第二个必须等同一个关停 Promise，而不是立刻返回
+    await Promise.all([d.close(), d.close()]);
+    expect(isDaemonRunning()).toBe(false);
+    // 锁已释放，紧接着起新的不会撞「已在运行」；顺手把它留作后续用例的共享实例
+    daemon = await startDaemon({ port: 0, quiet: true });
+    expect(daemon.pid).toBeGreaterThan(0);
+    baseUrl = `http://127.0.0.1:${daemon.port}`;
+  }, 15_000);
+});
+
 describe('纯函数', () => {
   it('sanitizeProjectName 清除危险字符，但保留目录层级 `/`', () => {
     expect(sanitizeProjectName('../etc')).toBe('etc');
@@ -227,10 +250,8 @@ describe('idle 自动退出', () => {
     const idle = await startDaemon({ port: 0, idleTimeoutMs: 200, idleCheckMs: 50, quiet: true });
     const pid = idle.pid;
     expect(pid).toBeGreaterThan(0);
-    // 等待自动退出
-    await new Promise((r) => setTimeout(r, 700));
-    // 退出后 socket 应消失
-    expect(isDaemonRunning()).toBe(false);
+    // 等待自动退出（轮询：关停是异步的，固定 sleep 在慢机器上会误报）
+    await waitUntilGone();
     // 重新拉起供后续用例使用（端口变化，必须同步 baseUrl）
     daemon = await startDaemon({ port: 0, quiet: true });
     baseUrl = `http://127.0.0.1:${daemon.port}`;
@@ -242,8 +263,7 @@ describe('生命周期策略（无项目/无 agent 时自己收尾）', () => {
     await daemon.close();
     const idle = await startDaemon({ port: 0, emptyGraceMs: 200, idleTimeoutMs: 10 * 60_000, idleCheckMs: 50, quiet: true });
     expect(idle.pid).toBeGreaterThan(0);
-    await new Promise((r) => setTimeout(r, 600));
-    expect(isDaemonRunning()).toBe(false);
+    await waitUntilGone();
     daemon = await startDaemon({ port: 0, quiet: true });
     baseUrl = `http://127.0.0.1:${daemon.port}`;
   }, 15_000);
@@ -262,8 +282,7 @@ describe('生命周期策略（无项目/无 agent 时自己收尾）', () => {
     expect(isDaemonRunning()).toBe(true);
     controller.abort();
     // 断开后回到「无连接」规则：很快收尾
-    await new Promise((r) => setTimeout(r, 700));
-    expect(isDaemonRunning()).toBe(false);
+    await waitUntilGone();
     daemon = await startDaemon({ port: 0, quiet: true });
     baseUrl = `http://127.0.0.1:${daemon.port}`;
   }, 20_000);

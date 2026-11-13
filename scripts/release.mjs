@@ -202,11 +202,14 @@ function parseRepo() {
   return { owner: match[1], repo: match[2] };
 }
 
+// 顺序与 ci.yml 一致：**先构建再测试**。
+// 有测试依赖构建产物（web.spec 的 SPA 回退、ui-interaction 的查看器交互），
+// 反过来的话在干净工作区上会静默跳过或直接失败。
 const GATES = [
   ['类型检查（服务端）', 'pnpm', ['check']],
   ['类型检查（ui）', 'pnpm', ['--dir', 'ui', 'typecheck']],
-  ['测试', 'pnpm', ['test']],
   ['构建', 'pnpm', ['build']],
+  ['测试', 'pnpm', ['test']],
   ['包内容自检', 'pnpm', ['verify:pkg']],
 ];
 

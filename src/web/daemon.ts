@@ -233,6 +233,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const idleCheckMs = opts.idleCheckMs ?? 2_000;
   let idleSince: number | null = null;
   let closing = false;
+  /** 进行中的关停 Promise：close() 必须等它，不能立刻返回 */
+  let closingPromise: Promise<void> | null = null;
   /** 最近一次 HTTP 活动：用来判定「浏览器还在不在」而不单靠 SSE 关闭事件 */
   let lastHttpAt = Date.now();
 
@@ -1037,34 +1039,43 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   }, idleCheckMs);
   idleTimer.unref();
 
-  async function shutdown(reason: string): Promise<void> {
-    if (closing) return;
+  /**
+   * 关停：幂等且**可等待**。
+   * 已经在关停中时必须返回同一个 Promise —— 否则 `close()` 会立刻 resolve，
+   * 调用方以为锁已释放，紧接着 `startDaemon` 就撞上「已在运行」。
+   * （v0.6.0 的 release 测试里就是这么连环挂的：idle 关停还在飞，close() 先返回了。）
+   */
+  function shutdown(reason: string): Promise<void> {
+    if (closingPromise !== null) return closingPromise;
     closing = true;
-    if (!opts.quiet) process.stderr.write(`paintress web: 退出（${reason}）\n`);
-    clearInterval(idleTimer);
-    if (registryTimer !== null) clearTimeout(registryTimer);
-    for (const timer of autoDetachTimers.values()) clearTimeout(timer);
-    autoDetachTimers.clear();
-    // 先告诉开着的页面「要关了」，前端才能把状态停留在一个说得通的画面上（而不是网络错误）
-    for (const client of registryClients) {
-      try {
-        client.write(`event: shutdown\ndata: ${JSON.stringify({ reason, at: Date.now() })}\n\n`);
-        client.end();
-      } catch {
-        /* 已断开 */
+    closingPromise = (async () => {
+      if (!opts.quiet) process.stderr.write(`paintress web: 退出（${reason}）\n`);
+      clearInterval(idleTimer);
+      if (registryTimer !== null) clearTimeout(registryTimer);
+      for (const timer of autoDetachTimers.values()) clearTimeout(timer);
+      autoDetachTimers.clear();
+      // 先告诉开着的页面「要关了」，前端才能把状态停留在一个说得通的画面上（而不是网络错误）
+      for (const client of registryClients) {
+        try {
+          client.write(`event: shutdown\ndata: ${JSON.stringify({ reason, at: Date.now() })}\n\n`);
+          client.end();
+        } catch {
+          /* 已断开 */
+        }
       }
-    }
-    registryClients.clear();
-    // end() 而非 destroy()：已排队的 shutdown 响应仍会发完，再关闭各 agent attach
-    for (const client of controlClients) client.end();
-    controlClients.clear();
-    await watchers.closeAll();
-    await new Promise<void>((resolve) => sockServer.close(() => resolve()));
-    // HTTP/2 不适用；HTTP/1 的 SSE 是活跃连接，close() 本身不会结束它们
-    const httpClosed = new Promise<void>((resolve) => httpServer.close(() => resolve()));
-    httpServer.closeAllConnections();
-    await httpClosed;
-    releaseLock();
+      registryClients.clear();
+      // end() 而非 destroy()：已排队的 shutdown 响应仍会发完，再关闭各 agent attach
+      for (const client of controlClients) client.end();
+      controlClients.clear();
+      await watchers.closeAll();
+      await new Promise<void>((resolve) => sockServer.close(() => resolve()));
+      // HTTP/2 不适用；HTTP/1 的 SSE 是活跃连接，close() 本身不会结束它们
+      const httpClosed = new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      httpServer.closeAllConnections();
+      await httpClosed;
+      releaseLock();
+    })();
+    return closingPromise;
   }
 
   return { port, pid: process.pid, close: () => shutdown('close'), registry };
