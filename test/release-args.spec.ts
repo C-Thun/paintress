@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseArgs } from '../scripts/release.mjs';
+import { bumpManifest, parseArgs } from '../scripts/release.mjs';
 
 /**
  * 发版脚本的参数契约。
@@ -30,5 +30,37 @@ describe('发版参数解析', () => {
     expect(() => parseArgs(['patch', '--nope'])).toThrow(/未知参数/);
     expect(() => parseArgs([])).toThrow(/用法/);
     expect(() => parseArgs(['huge'])).toThrow(/用法/);
+  });
+});
+
+describe('server.json 版本跟随 package.json', () => {
+  it('顶层 version 与每个 packages[].version 一起更新，其他字段原样保留', () => {
+    const raw = JSON.stringify(
+      {
+        $schema: 'https://example.test/server.schema.json',
+        name: 'io.github.aliciai-dev/paintress',
+        version: '0.5.2',
+        packages: [
+          { registryType: 'npm', identifier: 'paintress', version: '0.5.2' },
+          { registryType: 'oci', identifier: 'example/paintress:0.5.2', version: '0.5.2' },
+        ],
+      },
+      null,
+      2,
+    );
+    const next = JSON.parse(bumpManifest(raw, '0.6.0')) as {
+      name: string;
+      version: string;
+      packages: { version: string; identifier: string }[];
+    };
+    expect(next.version).toBe('0.6.0');
+    expect(next.packages.map((p) => p.version)).toEqual(['0.6.0', '0.6.0']);
+    expect(next.name).toBe('io.github.aliciai-dev/paintress');
+    // 只改版本位，不动 identifier 里的版本串（那是包名/镜像标签，不是清单版本）
+    expect(next.packages[1]?.identifier).toBe('example/paintress:0.5.2');
+  });
+
+  it('缺少 version 时中止，而不是写出半截清单', () => {
+    expect(() => bumpManifest(JSON.stringify({ name: 'x' }), '0.6.0')).toThrow(/server\.json 缺少 version/);
   });
 });

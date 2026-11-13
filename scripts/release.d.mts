@@ -13,3 +13,6 @@ export interface ParsedArgs {
 export function parseArgs(argv: string[]): ParsedArgs;
 
 export function nextVersion(current: string, bump: Bump): string;
+
+/** server.json 清单的版本跟随 package.json（顶层 + 每个 packages[].version） */
+export function bumpManifest(raw: string, to: string): string;

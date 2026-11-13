@@ -37,12 +37,14 @@
  * 2027-01 起绕过 2FA 的 granular token 失效，届时必须回到 tag + CI 路径。
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PKG_PATH = join(ROOT, 'package.json');
+/** MCP Registry 清单：版本号必须跟 package.json 同步（verify:pkg 会拦） */
+const MANIFEST_PATH = join(ROOT, 'server.json');
 const BUMPS = ['major', 'minor', 'patch'];
 const FLAGS = new Set(['--dry-run', '--prepare-only', '--no-wait', '--allow-branch', '--local', '--retag']);
 
@@ -137,6 +139,29 @@ function writeVersion(raw, from, to) {
   const next = raw.replace(pattern, `$1${to}$2`);
   if (parseJson(next, '替换后的 package.json').version !== to) throw new Abort('版本替换后自检失败，已中止');
   writeFileSync(PKG_PATH, next, 'utf8');
+}
+
+/**
+ * server.json 的版本跟随 package.json：顶层 version 与每个 packages[].version。
+ * 纯函数（返回新文本），便于测试；解析失败直接中止。
+ */
+export function bumpManifest(raw, to) {
+  const manifest = parseJson(raw, 'server.json');
+  if (typeof manifest.version !== 'string') throw new Abort('server.json 缺少 version');
+  manifest.version = to;
+  if (Array.isArray(manifest.packages)) {
+    for (const entry of manifest.packages) {
+      if (entry !== null && typeof entry === 'object' && typeof entry.version === 'string') entry.version = to;
+    }
+  }
+  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+/** 写入 server.json 的新版本；没有这个文件就跳过（返回 false） */
+function writeManifestVersion(to) {
+  if (!existsSync(MANIFEST_PATH)) return false;
+  writeFileSync(MANIFEST_PATH, bumpManifest(readFileSync(MANIFEST_PATH, 'utf8'), to), 'utf8');
+  return true;
 }
 
 function gitOutput(args) {
@@ -394,10 +419,17 @@ async function main() {
 
   step(`写入版本 ${next}`);
   writeVersion(raw, version, next);
-  ok('package.json 已更新');
+  const manifestBumped = writeManifestVersion(next);
+  ok(manifestBumped ? 'package.json 与 server.json 已更新' : 'package.json 已更新（没有 server.json）');
+
+  // 版本写入后再自检一次：版本耦合的产物（如 server.json）在提交前就该拦住，
+  // 而不是等 tag 推上去、CI 跑到 verify:pkg 才炸（v0.6.0 就是这样挂的）。
+  step('包内容自检（版本已写入）');
+  run('pnpm', ['verify:pkg']);
 
   step('提交并打 tag');
   run('git', ['add', 'package.json']);
+  if (manifestBumped) run('git', ['add', 'server.json']);
   run('git', ['commit', '-m', `chore(release): ${tag}`]);
   run('git', ['tag', '-a', tag, '-m', `${name} ${tag}`]);
   ok(`已提交并打 tag ${tag}`);
