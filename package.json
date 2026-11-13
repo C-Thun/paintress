@@ -1,6 +1,6 @@
 {
   "name": "paintress",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Design-document operation layer for AI agents: read, query, edit, render",
   "type": "module",
   "license": "MIT",
