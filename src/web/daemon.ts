@@ -24,6 +24,7 @@ import {
   isPresetType,
   listComponents,
   listPresets,
+  notePathFor,
   presetPathFor,
   readTextIfExists,
   setPreset,
@@ -624,11 +625,11 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
             return;
           }
           const abs = safeJoin(entry.rootReal, relPath);
-          if (!abs) {
+          const noteAbs = abs === null ? null : notePathFor(abs);
+          if (abs === null || noteAbs === null) {
             sendJson(404, { ok: false, error: '文件不存在' });
             return;
           }
-          const noteAbs = abs.replace(/\.(ptr|pen)$/i, '.md');
           let markdown: string | null;
           try {
             markdown = readTextIfExists(noteAbs);

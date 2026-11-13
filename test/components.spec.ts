@@ -120,6 +120,22 @@ describe('复制插入', () => {
     expect(v.warnings.some((w) => w.message.includes('未定义的变量'))).toBe(false);
   });
 
+  it('复制件整棵子树都不带 reusable（嵌套组件也不漏）', async () => {
+    const res = (await TOOLS['paintress_component']!.run({
+      action: 'insert',
+      path: design,
+      id: 'cmp-card',
+    })) as { result: { id: string } };
+    const after = loadDoc(design).doc;
+    const card = after.children.find((c) => (c as Record<string, unknown>)['id'] === res.result.id) as Record<string, unknown>;
+    const allReusable = (n: Record<string, unknown>): string[] => {
+      const ids = n['reusable'] === true ? [String(n['id'])] : [];
+      for (const k of (n['children'] ?? []) as Record<string, unknown>[]) ids.push(...allReusable(k));
+      return ids;
+    };
+    expect(allReusable(card)).toEqual([]);
+  });
+
   it('组件不存在时列出可用 id 的提示', async () => {
     expect(() => TOOLS['paintress_component']!.run({ action: 'insert', path: design, id: 'nope' })).toThrow(
       /组件不存在：nope/,

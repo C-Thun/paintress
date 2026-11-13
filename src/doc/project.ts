@@ -39,6 +39,12 @@ export function isPresetType(v: unknown): v is PresetType {
   return v === 'color' || v === 'radius';
 }
 
+/** 拼出设计稿旁边那份笔记的绝对路径（只认 .ptr / .pen，其余扩展名返回 null） */
+export function notePathFor(designAbsPath: string): string | null {
+  if (!/\.(ptr|pen)$/i.test(designAbsPath)) return null;
+  return designAbsPath.replace(/\.(ptr|pen)$/i, '.md');
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }

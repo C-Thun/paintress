@@ -450,8 +450,17 @@ export const TOOLS: Record<string, ToolDef> = {
       const node = findNodeIn(expanded, compId);
       if (node === null) throw new Error(`组件不存在：${compId}（先 paintress_component list 看有哪些）`);
       const copy = structuredClone(node);
-      // 复制出来的是实例，不是新的组件定义
-      delete copy['reusable'];
+      // 复制出来的是实例，不是组件定义：整棵子树都摘掉 reusable。
+      // 否则组件库里的嵌套组件（ref 展开后仍带 reusable:true）会被复制成新定义，
+      // 下次 list 就在设计稿里看到一堆"伪组件"。
+      const stripReusable = (n: unknown): void => {
+        if (!n || typeof n !== 'object') return;
+        const rec = n as Record<string, unknown>;
+        delete rec['reusable'];
+        const kids = rec['children'];
+        if (Array.isArray(kids)) for (const k of kids) stripReusable(k);
+      };
+      stripReusable(copy);
 
       return write(target, (doc, mark) => {
         remapIds(copy, new Set(collectIds(doc.children)));

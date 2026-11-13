@@ -72,6 +72,13 @@ describe('笔记接口', () => {
     expect(res.status).toBe(404);
   });
 
+  it('非设计稿扩展名一律 404（不拿 .md 文件当笔记找第二份 .md）', async () => {
+    const res = await fetch(`${base}/api/notes?project=${PROJECT}&path=${q('design.md')}`);
+    expect(res.status).toBe(404);
+    const res2 = await fetch(`${base}/api/notes?project=${PROJECT}&path=${q('noext')}`);
+    expect(res2.status).toBe(404);
+  });
+
   it('超大笔记返回 413', async () => {
     writeFileSync(join(dir, 'huge.ptr'), JSON.stringify({ version: '2.22', children: [] }));
     writeFileSync(join(dir, 'huge.md'), 'x'.repeat(600 * 1024));
