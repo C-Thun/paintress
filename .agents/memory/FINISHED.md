@@ -153,3 +153,13 @@
 - MCP initialize 下发 `instructions`（查看器优先 + 幂等声明 + 工作流），新增第 14 个工具 `paintress_viewer`；写工具执行前 best-effort 再 ensure 一次（仅 stdio 入口开启）。
 - `SKILL.md` 增「Start the viewer before you draw」；README 双语同步。质量基线：双端 `tsc` 0 错误、**18 文件 257 用例全绿**、`pnpm build` 通过。
 - 证据：`.agents/implementations/2026-11-13_2138_idempotent-viewer-ensure.md`。
+
+### 设计稿笔记 + 项目预设 + 组件画廊（2026-11-13）
+
+- 笔记：同名 `.md` → 画布左上角按钮 → 左侧固定宽抽屉（画布收窄），marked 懒加载 + 输出策略（原样 HTML 转义、链接白名单）；`/events` 同时监听笔记与预设文件。
+- 预设：`__preset.ptr`（值走原生 `variables`，类型/名称走 `x-paintress.presets`）；渲染/截图/校验/写前检查共用合并副本，保存永远写原文档（不烤值）；`paintress_preset` + CLI `preset` + `GET/PUT /api/presets`。
+- 组件：`__components.ptr`（`reusable` 节点）+ 只读画廊（148px tile）；`paintress_component insert` 复制时展开 ref、重排 id，复制件自包含。
+- 界面：新增 `panel` / `tool-rail` / `notes-drawer` / `preset-panel` / `component-gallery` 五个组件与 `markdown.ts`；图标内联，不新增图标库。
+- README 双语重写（不再以 `.ptr`/格式术语开头，用户文档里拿掉 `.ptr`）；`server.json` 入仓并在 `verify:pkg` 校验版本。
+- 质量基线：双端 `tsc` 0 错误、**22 文件 286 用例全绿**、`pnpm build` + `verify:pkg` 通过；新增真实 Chromium 交互回归。
+- 证据：`.agents/implementations/2026-11-14_0127_notes-presets-components.md`。
