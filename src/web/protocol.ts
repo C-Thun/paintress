@@ -35,7 +35,7 @@ export type ServerResponse =
   | { ok: true; detached: true; project: string }
   | { ok: true; watched: true; project: ProjectInfo }
   | { ok: true; unwatched: boolean }
-  | { ok: true; pong: true; pid: number; uptimeMs: number; projects: number }
+  | { ok: true; pong: true; pid: number; port: number; uptimeMs: number; projects: number }
   | { ok: true; marks: Mark[] }
   | { ok: true; mark: Mark }
   | { ok: true; cleared: number }

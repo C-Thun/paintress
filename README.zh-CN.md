@@ -14,7 +14,7 @@ paintress 读写结构化的设计稿——带公开 schema 的 JSON 文件。**
 
 | 组成 | 作用 |
 | --- | --- |
-| MCP 工具 | 新建、查询、读取、更新、插入、删除、移动、批量、校验、渲染、截图 |
+| MCP 工具 | 确保查看器在跑、新建、查询、读取、更新、插入、删除、移动、批量、校验、渲染、截图 |
 | CLI | 同样的操作，外加查看器进程；不接 agent 也能用 |
 | 查看器 | 本地 web 服务：渲染设计稿、高亮变更、把点击的节点变成 `#1`、`#2`… |
 | 截图 | 整张画布的 PNG，给能看图的 agent 用 |
@@ -58,7 +58,7 @@ paintress validate <file>                              按格式规格校验
 paintress render <file> <out.html>                     渲染为 HTML
 paintress shot <file> <out.png> [--scale n]            渲染为 PNG
 
-paintress web [--port n] [--idle ms] [--daemon]        启动查看器
+paintress web [--port n] [--idle ms] [--daemon]        确保查看器在跑（幂等）
 paintress ping | status | stop                         查看器控制
 paintress watch <name> <dir> | unwatch <name>          注册/移除要浏览的目录
 paintress attach <name>                                agent 工作期间保持查看器存活
@@ -71,10 +71,14 @@ paintress mcp-config <client>                          打印单个客户端的�
 ## 查看器
 
 ```bash
-paintress web --daemon --idle 3600000
+paintress web --daemon
 paintress watch demo ./demo
 # 打开 http://localhost:3316/demo?file=hello.ptr
 ```
+
+`paintress web --daemon` 是幂等的：已经在跑就打印那个进程的 `pid` / `port` / `http` 后退出，所以每次开始作画前无条件跑一遍都没问题——永远不会出现第二个实例。前台形式（`paintress web`）同样复用正在跑的查看器，而不是报错；只有它自己真去启动时才会占住终端。要换端口/重启，用 `paintress stop`。
+
+agent 从 MCP 侧拿到同样的保证：`paintress_viewer` 确保查看器在跑并把当前项目注册进去，MCP server 还会在每次写操作前再确认一遍——于是查看器是在第一次编辑之前就起来的，而不是等人开口。
 
 画布操作：滚轮以指针为锚点缩放，空格 / 中键 / 空白处拖拽平移，`Ctrl/Cmd+0` 回到 100%，`Shift+1` 适应窗口。多画板文件会显示画板条。通过 CLI 或 MCP 做的修改会在查看器里高亮，点击会让节点获得短号，agent 用 `paintress_marks` 读回。
 
@@ -100,7 +104,7 @@ paintress mcp-config cursor   # 只打印片段，不改文件
 
 ## Skill
 
-`skills/paintress/SKILL.md` 是给 agent 的简短说明：什么时候用这些工具、`#1` 怎么映射到节点 id、哪个工具做什么。支持 skill 机制的客户端把它复制进对应目录即可。
+`skills/paintress/SKILL.md` 是给 agent 的简短说明：什么时候用这些工具、**作画前先把查看器拉起来（幂等）**、`#1` 怎么映射到节点 id、哪个工具做什么。支持 skill 机制的客户端把它复制进对应目录即可。
 
 ## 文档
 

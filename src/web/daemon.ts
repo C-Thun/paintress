@@ -144,7 +144,7 @@ function acquireLock(): () => void {
       holder = 0;
     }
     if (isAlive(holder)) {
-      throw new Error(`paintress web 已在运行（pid ${holder}）。如需重启请先 paintress web --stop`);
+      throw new Error(`paintress web 已在运行（pid ${holder}）。如需重启请先 paintress stop`);
     }
     // 残留锁（持锁进程已死）→ 清理重建
     // 注：PID 复用可能造成误判为「活着」，此时以 socket 探测为准（frame 会连不上而报错）
@@ -352,7 +352,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         try {
           switch (req.kind) {
             case 'ping':
-              reply({ ok: true, pong: true, pid: process.pid, uptimeMs: Date.now() - startedAt, projects: registry.all().length });
+              reply({ ok: true, pong: true, pid: process.pid, port, uptimeMs: Date.now() - startedAt, projects: registry.all().length });
               break;
             case 'status':
               reply({

@@ -22,10 +22,20 @@ npm ls -g --depth=0 paintress   # installed globally?
 
 If either prints something, **do not install again**. Use the existing binary. `paintress doctor` shows which agents already have the MCP entry and whether it is current.
 
+## Start the viewer before you draw
+
+**Drawing means someone is watching.** Before the first write of a drawing session (creating, editing or showing a design), make sure the viewer is running — do not wait to be asked, and do not draw into the void first.
+
+- MCP: call `paintress_viewer` — it ensures the viewer, registers this project, and returns the URL to hand over.
+- CLI: run `paintress web --daemon` — it prints `pid` / `port` / `http` and returns immediately.
+
+Both are **idempotent**: if a viewer is already up they reuse it and start nothing, so running them every time is safe and you will never end up with a second process. Never run plain `paintress web` in a shell call — the foreground form blocks until the process is stopped.
+
 ## Tools
 
 | Tool | What it does |
 | --- | --- |
+| `paintress_viewer` | **ensure the viewer is up** and register the project; idempotent, returns the URL |
 | `paintress_new` | **create a document.** Writes a valid `.ptr` with one empty board; returns the `boardId`. Refuses to overwrite; `path` without an extension gets `.ptr` |
 | `paintress_doc_info` | document summary: version, format flavor, node counts, variables, top-level nodes |
 | `paintress_query` | find nodes by type / name (exact or regex) / id / reusable |
@@ -42,12 +52,13 @@ If either prints something, **do not install again**. Use the existing binary. `
 
 ## Working rules
 
-1. **Nothing to edit? Create it.** `paintress_new` is the only way to make a file; there is no "empty document" state to work around, and no need to hand-write JSON.
-2. **Query before you edit.** Node ids come from the file; never invent them.
-3. **`#N` means a marker.** When the user writes `#1`, call `paintress_marks` and map `#1` to a real node id. Markers are per viewer session.
-4. **Top-level nodes are boards.** Use `paintress_doc_info` to list them before guessing what "the second screen" means.
-5. **After a batch, validate.** `paintress_validate` catches structural mistakes before the user opens the file.
-6. **Screenshots are for you.** `paintress_screenshot` is how you look at the design; the HTML viewer is for the human. When a document has several boards, pass `board` to get just that page — an ambiguous name errors out and lists the candidates rather than guessing.
+1. **Viewer first.** Start it (`paintress_viewer` / `paintress web --daemon`) before the first write — see above. It is idempotent, so there is no reason to skip it.
+2. **Nothing to edit? Create it.** `paintress_new` is the only way to make a file; there is no "empty document" state to work around, and no need to hand-write JSON.
+3. **Query before you edit.** Node ids come from the file; never invent them.
+4. **`#N` means a marker.** When the user writes `#1`, call `paintress_marks` and map `#1` to a real node id. Markers are per viewer session.
+5. **Top-level nodes are boards.** Use `paintress_doc_info` to list them before guessing what "the second screen" means.
+6. **After a batch, validate.** `paintress_validate` catches structural mistakes before the user opens the file.
+7. **Screenshots are for you.** `paintress_screenshot` is how you look at the design; the HTML viewer is for the human. When a document has several boards, pass `board` to get just that page — an ambiguous name errors out and lists the candidates rather than guessing.
 
 ## Node fields worth knowing
 
@@ -58,15 +69,15 @@ If either prints something, **do not install again**. Use the existing binary. `
 The human-facing viewer is a separate process:
 
 ```bash
-paintress web --daemon          # http://localhost:3316
-paintress watch <name> <dir>    # register a directory
+paintress web --daemon          # idempotent: reuses the running one, else starts it
+paintress watch <name> <dir>    # register a directory (only when it is outside the project)
 ```
 
 Ask the user to open the URL and click the nodes they mean; then read `paintress_marks` to learn which ids those clicks became.
 
 ## Bind the project yourself — do not wait to be asked
 
-When the user refers to a design, asks to see one, or asks to draw something in this project, **you** make it viewable. The MCP server auto-registers the working directory at startup (its name is the last two path segments, slash included, e.g. `acme/shop`); if that already covers the request, just hand over the viewer URL:
+When the user refers to a design, asks to see one, or asks to draw something in this project, **you** make it viewable — start with `paintress_viewer` / `paintress web --daemon` (both idempotent). The MCP server also auto-registers the working directory at startup and re-checks it before every write (its name is the last two path segments, slash included, e.g. `acme/shop`); if that already covers the request, just hand over the viewer URL:
 
 - viewer: `http://localhost:3316/`
 - deep link to a file: `http://localhost:3316/<name>?file=<relative/path>` (e.g. `http://localhost:3316/acme/shop?file=design/main.pen`)

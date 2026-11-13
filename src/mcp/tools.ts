@@ -9,6 +9,7 @@ import { query as q, get as g, update as u, insert as i, remove as rm, move as m
 import { renderDocument } from '../render/index.js';
 import { screenshotPen, findBrowser } from '../shot/screenshot.js';
 import { isDaemonRunning, sendRequest } from '../web/client.js';
+import { ensureViewer } from '../web/autoregister.js';
 
 /**
  * 工具层：MCP 与 CLI 共享同一套 handler（无状态）。
@@ -161,6 +162,36 @@ function newDoc(args: Record<string, unknown>): ToolOutput {
 }
 
 export const TOOLS: Record<string, ToolDef> = {
+  paintress_viewer: {
+    description:
+      '确保本地查看器在运行，并把当前项目注册进去，返回人可以打开的 URL。幂等：已在运行就直接复用（返回现有 pid/端口，绝不起第二个进程），可以在开始画/改/展示设计稿之前无条件调用。**开始作画前先调它，不要等人提醒**',
+    inputSchema: {
+      dir: z.string().optional().describe('要注册的目录，默认当前工作目录'),
+      project: z.string().optional().describe('项目名（URL 里那一段），默认取「父目录/目录名」'),
+      depth: z.number().int().min(1).max(6).optional().describe('列举设计稿的最大深度，默认 3'),
+    },
+    run: async (a) => {
+      const dir = optStr(a, 'dir');
+      const project = optStr(a, 'project');
+      const depth = optNum(a, 'depth');
+      const info = await ensureViewer({
+        ...(dir !== undefined ? { dir } : {}),
+        ...(project !== undefined ? { project } : {}),
+        ...(depth !== undefined ? { depth } : {}),
+      });
+      return {
+        ok: true,
+        project: info.project,
+        url: info.url,
+        pid: info.pid,
+        port: info.port,
+        started: info.startedDaemon,
+        openedBrowser: info.openedBrowser,
+        hint: `把人指向 ${info.url}（单份设计稿加深链 ?file=<相对路径>）`,
+      };
+    },
+  },
+
   paintress_new: {
     description:
       '新建文档（.ptr 是 paintress 的标准格式；.pen 仅作兼容）。创建一个带空 board 的最小可用文档，可直接 render/screenshot 再逐层 insert；已存在同名文件时报错，除非 overwrite=true。path 不带扩展名时自动补 .ptr',
@@ -364,7 +395,7 @@ export const TOOLS: Record<string, ToolDef> = {
     },
     run: async (a) => {
       if (!isDaemonRunning()) {
-        throw new Error('paintress web 未运行，无法读取标记；先运行 paintress web --daemon');
+        throw new Error('paintress web 未运行，无法读取标记；先调用 paintress_viewer（或运行 paintress web --daemon）');
       }
       const project = optStr(a, 'project') ?? '';
       const action = optStr(a, 'action') ?? 'list';

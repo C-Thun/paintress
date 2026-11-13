@@ -14,7 +14,7 @@ It is not an editor. There is no canvas, no drag-and-drop, no property panel. A 
 
 | Part | Purpose |
 | --- | --- |
-| MCP tools | create, query, read, update, insert, delete, move, batch, validate, render, screenshot |
+| MCP tools | ensure the viewer, create, query, read, update, insert, delete, move, batch, validate, render, screenshot |
 | CLI | the same operations plus the viewer process, for use without an agent |
 | Viewer | local web server: renders a document, highlights changes, hands back clicked nodes as `#1`, `#2`, … |
 | Screenshot | PNG of a whole canvas, for agents that can look at images |
@@ -58,7 +58,7 @@ paintress validate <file>                               check against the format
 paintress render <file> <out.html>                      write the canvas as HTML
 paintress shot <file> <out.png> [--scale n] [--board id|name]  render to PNG (one board or the whole canvas)
 
-paintress web [--port n] [--idle ms] [--daemon]         start the viewer
+paintress web [--port n] [--idle ms] [--daemon]         ensure the viewer is running (idempotent)
 paintress ping | status | stop                          viewer control
 paintress watch <name> <dir> | unwatch <name>           register a directory to browse
 paintress attach <name>                                 keep the viewer alive while an agent works
@@ -71,10 +71,14 @@ paintress mcp-config <client>                           print the config snippet
 ## Viewer
 
 ```bash
-paintress web --daemon --idle 3600000
+paintress web --daemon
 paintress watch demo ./demo
 # open http://localhost:3316/demo?file=hello.ptr
 ```
+
+`paintress web --daemon` is idempotent: if a viewer is already running it prints that process's `pid` / `port` / `http` and exits, so it is safe to run before every drawing session — there is never a second instance. The foreground form (`paintress web`) reuses a running viewer the same way instead of erroring; it only blocks when it had to start one. `paintress stop` is how you replace a running viewer (e.g. on another port).
+
+Agents get the same guarantee from the MCP side: `paintress_viewer` ensures the viewer and registers the current project, and the MCP server re-checks it before every write, so the viewer is up before the first edit instead of after someone asks.
 
 Canvas navigation: wheel zooms at the pointer, space / middle button / empty area drags to pan, `Ctrl/Cmd+0` returns to 100%, `Shift+1` fits the window. Files with more than one board get a board strip. Edits made through the CLI or MCP are highlighted in the viewer, and clicks assign short ids that the agent can read back with `paintress_marks`.
 
@@ -106,7 +110,7 @@ paintress mcp-config cursor   # print the exact snippet instead of editing files
 
 ## Skill
 
-`skills/paintress/SKILL.md` is a short instruction file for agents: when to reach for these tools, how `#1` markers map to node ids, and which tool to use for what. Copy it into your agent's skill directory if it supports one.
+`skills/paintress/SKILL.md` is a short instruction file for agents: when to reach for these tools, **to bring the viewer up before drawing** (idempotently), how `#1` markers map to node ids, and which tool to use for what. Copy it into your agent's skill directory if it supports one.
 
 ## Documentation
 

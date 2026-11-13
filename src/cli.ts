@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { TOOLS, type ToolOutput } from './mcp/tools.js';
 import { runStdioServer } from './mcp/server.js';
-import { startDaemon } from './web/daemon.js';
-import { isDaemonRunning, sendRequest, attachPersistent } from './web/client.js';
+import { startDaemon, type DaemonHandle } from './web/daemon.js';
+import { isDaemonRunning, sendRequest, attachPersistent, queryDaemon } from './web/client.js';
+import { ensureDaemon, reuseDaemon } from './web/spawn.js';
 import {
   CLIENTS,
   findClient,
@@ -35,7 +36,7 @@ import { VERSION } from './shared/version.js';
  *   paintress render <file> <out.html>
  *   paintress shot <file> <out.png> [--scale n] [--board id|name]
  *   paintress validate <file>
- *   paintress web [--port n] [--idle ms] [--daemon]   启动唯一 web 实例
+ *   paintress web [--port n] [--idle ms] [--daemon]   确保 web 在跑（幂等：已在跑就复用）
  *   paintress ping                                    检查 web 是否在运行
  *   paintress status                                  查看已注册项目
  *   paintress watch <name> <dir>                      注册要跟踪的目录
@@ -273,33 +274,54 @@ export async function main(argv: string[]): Promise<number> {
       const idle = flagNum(flags, 'idle');
       // --no-open：不想被弹浏览器时用（CI、远程、只想拿 URL 给人）
       const noOpen = flags[NO_OPEN_FLAG] === true || process.env['PAINTRESS_NO_OPEN'] === '1';
-      if (flags['daemon'] === true) {
-        const { spawn } = await import('node:child_process');
-        const args = [process.argv[1] ?? '', 'web'];
-        if (port !== undefined) args.push('--port', String(port));
-        if (idle !== undefined) args.push('--idle', String(idle));
-        if (noOpen) args.push('--no-open');
-        const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
-        child.unref();
-        const deadline = Date.now() + 5000;
-        while (Date.now() < deadline) {
-          if (isDaemonRunning()) {
-            const res = await sendRequest({ kind: 'ping' });
-            console.log(JSON.stringify({ daemon: true, launcherPid: child.pid, ...res }, null, 2));
-            return 0;
-          }
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        throw new Error('后台启动超时（5s 内未出现控制面 socket）');
+      const url = (p: number): string => `http://localhost:${p}`;
+      // 幂等：已经在跑就复用它（打印 pid/端口/URL 后立刻返回），绝不起第二个进程。
+      // 这是「开始作画前先确保 web 在跑」可以无条件调用的前提。
+      const running = await reuseDaemon(port);
+      if (running !== null) {
+        console.log(
+          JSON.stringify(
+            { ok: true, daemon: true, reused: true, pid: running.pid, port: running.port, http: url(running.port) },
+            null,
+            2,
+          ),
+        );
+        return 0;
       }
-      const handle = await startDaemon({
-        ...(port !== undefined ? { port } : {}),
-        ...(idle !== undefined ? { idleTimeoutMs: idle } : {}),
-        // 人手动起的实例给一分钟窗口去 watch；agent 自动起的走默认的 3s 快速收尾
-        emptyGraceMs: 60_000,
-        updateCheck: true,
-      });
-      const http = `http://localhost:${handle.port}`;
+      if (flags['daemon'] === true) {
+        const res = await ensureDaemon({
+          ...(port !== undefined ? { port } : {}),
+          ...(idle !== undefined ? { idleTimeoutMs: idle } : {}),
+          noOpen,
+        });
+        console.log(
+          JSON.stringify(
+            { ok: true, daemon: true, reused: !res.started, pid: res.pid, port: res.port, http: url(res.port) },
+            null,
+            2,
+          ),
+        );
+        return 0;
+      }
+      let handle: DaemonHandle;
+      try {
+        handle = await startDaemon({
+          ...(port !== undefined ? { port } : {}),
+          ...(idle !== undefined ? { idleTimeoutMs: idle } : {}),
+          // 人手动起的实例给一分钟窗口去 watch；agent 自动起的走默认的 3s 快速收尾
+          emptyGraceMs: 60_000,
+          updateCheck: true,
+        });
+      } catch (cause) {
+        // 并发启动输给了别人：复用活下来的那个，而不是报「已在运行」
+        const again = await queryDaemon();
+        if (again === null) throw cause;
+        console.log(
+          JSON.stringify({ ok: true, daemon: true, reused: true, pid: again.pid, port: again.port, http: url(again.port) }, null, 2),
+        );
+        return 0;
+      }
+      const http = url(handle.port);
       console.log(JSON.stringify({ ok: true, pid: handle.pid, port: handle.port, http }, null, 2));
       if (!noOpen) {
         const { openBrowser } = await import('./web/open-browser.js');

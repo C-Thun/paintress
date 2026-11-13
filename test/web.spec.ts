@@ -45,11 +45,12 @@ describe('单实例与生命周期', () => {
     await expect(startDaemon({ port: 0, quiet: true })).rejects.toThrow(/已在运行/);
   });
 
-  it('ping 返回 pid 与项目数', async () => {
+  it('ping 返回 pid、端口与项目数', async () => {
     const res = await sendRequest({ kind: 'ping' });
     expect(res.ok).toBe(true);
     if (res.ok && 'pong' in res) {
       expect(res.pid).toBe(daemon.pid);
+      expect(res.port).toBe(daemon.port);
       expect(typeof res.projects).toBe('number');
     }
   });

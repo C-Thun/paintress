@@ -9,6 +9,28 @@ export function isDaemonRunning(): boolean {
   return existsSync(socketPath());
 }
 
+/** 运行中 daemon 的身份信息（幂等启动与 URL 拼接都靠它） */
+export interface DaemonInfo {
+  pid: number;
+  port: number;
+  uptimeMs: number;
+}
+
+/**
+ * 查询运行中的 daemon：未运行、socket 残留、daemon 无响应都返回 null。
+ * 调用方拿到 null 就可以安全地走「启动」分支 —— 幂等的判据只有这一处。
+ */
+export async function queryDaemon(timeoutMs = 2000): Promise<DaemonInfo | null> {
+  if (!isDaemonRunning()) return null;
+  try {
+    const res = await sendRequest({ kind: 'ping' }, timeoutMs);
+    if (res.ok && 'pong' in res) return { pid: res.pid, port: res.port, uptimeMs: res.uptimeMs };
+  } catch {
+    /* 残留 socket / 半死进程：当作未运行，交给启动路径处理 */
+  }
+  return null;
+}
+
 function connectSocket(): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const sock = connect(socketPath());
@@ -63,6 +85,8 @@ export async function sendRequest(req: ClientRequest, timeoutMs = 5000): Promise
 
 export interface AttachHandle {
   close(): void;
+  /** 连接是否已断（daemon 退出、shutdown、对端关闭都会置位） */
+  isClosed(): boolean;
   /** daemon 主动关闭连接时触发（如 shutdown） */
   onClose(cb: () => void): void;
 }
@@ -99,6 +123,7 @@ export async function attachPersistent(project: string): Promise<AttachHandle> {
               closed = true;
               sock.end();
             },
+            isClosed: () => closed,
             onClose: (cb) => closeCbs.push(cb),
           });
         } else if (!parsed.ok) {
