@@ -54,6 +54,7 @@
   - **GitHub 官方政策明确拒绝回收**：`We do not accept requests to release, transfer, or reclaim usernames on the basis that they appear inactive or unused.`（2022 年政策收紧，此前可由 support 酌情处理）。唯一例外是商标侵权投诉。
   - **GitHub Organization 的 handle 与 display name 是两套名字**：handle 决定 URL 且必须唯一，display name 可自由设置。因此「URL 用变体、页面显示原名」是官方支持的做法。
 
+- **中文名**（operator 2026-11-14 定）：中文名是**绘母**（取自《光与影：33 号远征队》）。日常文档、对话、工具输出**统一叫 `paintress`**；只有确实需要中文名时才写「绘母」，不做中英混排式的双重称呼。
 - **决定**（2026-11-10 定稿）：
   - CLI 命令名：`paintress`（全称）。
   - GitHub 组织：handle **`aliciai-dev`**，display name 设为 `Aliciai`（operator 已注册该 org）。
