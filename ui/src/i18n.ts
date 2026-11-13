@@ -54,6 +54,20 @@ export interface Messages {
   closingIn: (seconds: number) => string;
   /** 刚打开页面、还没有任何项目时的等待文案 */
   waitingForAgent: string;
+  /** 画布左侧笔记抽屉 / 右上浮动工具条与面板 */
+  notes: string;
+  notesTitle: string;
+  canvasTools: string;
+  presets: string;
+  components: string;
+  closePanel: string;
+  presetEmpty: string;
+  presetHint: string;
+  presetColor: string;
+  presetRadius: string;
+  componentsEmpty: string;
+  componentsHint: string;
+  componentsCount: (count: number) => string;
 }
 
 const MESSAGES: Record<Lang, Messages> = {
@@ -102,6 +116,19 @@ const MESSAGES: Record<Lang, Messages> = {
     noActiveProjects: '无激活项目',
     closingIn: (seconds) => `窗口将在 ${seconds} 秒后关闭`,
     waitingForAgent: '等待 agent 接入 —— 在项目里让 AI 操作设计稿，这里会自动出现。',
+    notes: '笔记',
+    notesTitle: '设计笔记',
+    canvasTools: '画布工具',
+    presets: '预设',
+    components: '组件',
+    closePanel: '关闭',
+    presetEmpty: '还没有预设。让 agent 先把颜色和倒角定下来。',
+    presetHint: '改一个值，画布立刻更新。',
+    presetColor: '颜色',
+    presetRadius: '倒角',
+    componentsEmpty: '还没有组件。让 agent 把做好的组件登记进组件库。',
+    componentsHint: '画新组件之前，先看这里有没有能复用的。',
+    componentsCount: (count) => `${count} 个组件`,
   },
   en: {
     projects: 'Projects',
@@ -148,6 +175,19 @@ const MESSAGES: Record<Lang, Messages> = {
     noActiveProjects: 'No active projects',
     closingIn: (seconds) => `This window closes in ${seconds}s`,
     waitingForAgent: 'Waiting for an agent — ask your AI to touch a design and it shows up here automatically.',
+    notes: 'Notes',
+    notesTitle: 'Design notes',
+    canvasTools: 'Canvas tools',
+    presets: 'Presets',
+    components: 'Components',
+    closePanel: 'Close',
+    presetEmpty: 'No presets yet. Ask the agent to fix colors and corner radii first.',
+    presetHint: 'Change a value and the canvas updates immediately.',
+    presetColor: 'Colors',
+    presetRadius: 'Corner radius',
+    componentsEmpty: 'No components yet. Ask the agent to register the ones it built.',
+    componentsHint: 'Check here before building a new component.',
+    componentsCount: (count) => `${count} component${count === 1 ? '' : 's'}`,
   },
 };
 

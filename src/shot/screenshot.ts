@@ -5,6 +5,7 @@ import { readdirSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 import { renderDocument, type BoardBox } from '../render/index.js';
 import { loadDoc } from '../doc/io.js';
+import { applyProjectPresets } from '../doc/project.js';
 import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
@@ -102,7 +103,8 @@ export async function screenshotPen(penPath: string, outPng: string, opts: ShotO
     throw new Error('未找到可用浏览器：安装 Chromium/Chrome，或设置 PTR_BROWSER 指向可执行文件');
   }
   const loaded = loadDoc(penPath);
-  const rendered = renderDocument(loaded.doc);
+  // 项目预设：截图必须与查看器看到的一致
+  const rendered = renderDocument(applyProjectPresets(loaded.doc, penPath).doc);
   const target = opts.board !== undefined ? selectBoard(rendered.boards, opts.board) : undefined;
   // 只有「显式存了尺寸」的画板才能在开浏览器前判定为 0；自动尺寸的板子要进去量了才知道
   const tmpDir = mkdtempSync(join(tmpdir(), 'paintress-shot-'));

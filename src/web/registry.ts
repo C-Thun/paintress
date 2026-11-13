@@ -122,7 +122,9 @@ export class Registry {
           if (skip.has(name)) continue;
           walk(abs, relPath, depth + 1);
         } else if (DESIGN_EXT.has(extname(name).toLowerCase())) {
-          out.push(relPath);
+          // `__preset.ptr` / `__components.ptr` 是项目级基础设施，走各自的接口，
+          // 不在设计稿列表里出现（否则侧栏和文件数都会被它们污染）
+          if (!name.startsWith('__')) out.push(relPath);
         }
       }
     };

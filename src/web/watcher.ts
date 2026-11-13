@@ -63,6 +63,10 @@ export class WatchManager {
       watcher.on('change', () => {
         for (const cb of created.listeners) cb(absPath);
       });
+      // 监听的文件可能还不存在（同名笔记、预设文件）：创建时也要通知
+      watcher.on('add', () => {
+        for (const cb of created.listeners) cb(absPath);
+      });
       watcher.on('unlink', () => {
         for (const cb of created.listeners) cb(absPath);
       });

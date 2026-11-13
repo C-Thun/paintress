@@ -3,10 +3,24 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { loadDoc, saveDoc, type DocFlavor } from '../doc/io.js';
 import { createDoc } from '../doc/create.js';
-import { collectIds } from '../doc/id.js';
+import { collectIds, genId } from '../doc/id.js';
 import { validateDoc } from '../doc/validate.js';
+import {
+  applyProjectPresets,
+  componentsPathFor,
+  projectPresetNames,
+  findNodeIn,
+  isPresetType,
+  listComponents,
+  listPresets,
+  presetPathFor,
+  readComponentsFile,
+  removePreset,
+  setPreset,
+  type PresetType,
+} from '../doc/project.js';
 import { query as q, get as g, update as u, insert as i, remove as rm, move as mv, batch as bt, type BatchOp } from '../ops/index.js';
-import { renderDocument } from '../render/index.js';
+import { expandRefs, renderDocument } from '../render/index.js';
 import { screenshotPen, findBrowser } from '../shot/screenshot.js';
 import { isDaemonRunning, sendRequest } from '../web/client.js';
 import { ensureViewer } from '../web/autoregister.js';
@@ -85,7 +99,10 @@ async function write(
     touched.push(...ids);
   };
   const result = fn(loaded.doc, mark);
-  const v = validateDoc(loaded.doc);
+  // 校验看「合并项目预设后」的文档，保存写回未合并的原文档：
+  // 否则一次 update 就会把预设值烤进设计稿，人再调预设就不生效了。
+  const presetNames = projectPresetNames(path);
+  const v = validateDoc(loaded.doc, { knownVars: presetNames, presetVars: presetNames });
   if (!v.ok) {
     throw new Error(`变更后结构校验失败，未落盘：\n${v.errors.map((e) => `  ${e.path}: ${e.message}`).join('\n')}`);
   }
@@ -111,8 +128,8 @@ function countByType(children: unknown[]): Record<string, number> {
 }
 
 /**
- * 新建文档。path 不带扩展名时补 `.ptr`：新建一律默认标准格式，
- * `.pen` 只有在调用方显式写扩展名时才产出（兼容旧工具链）。
+ * 新建设计稿。path 不带扩展名时补默认扩展名；调用方显式写 `.pen` 时按兼容格式产出
+ * （不替用户转换已有文件）。
  */
 function newDoc(args: Record<string, unknown>): ToolOutput {
   const raw = reqStr(args, 'path');
@@ -161,6 +178,20 @@ function newDoc(args: Record<string, unknown>): ToolOutput {
   };
 }
 
+
+/** 复制进设计稿前给整棵子树换新 id：组件库与目标文件的 id 空间互不相干 */
+function remapIds(node: unknown, taken: Set<string>): void {
+  if (!node || typeof node !== 'object') return;
+  const rec = node as Record<string, unknown>;
+  if (typeof rec['id'] === 'string') {
+    const fresh = genId(taken);
+    taken.add(fresh);
+    rec['id'] = fresh;
+  }
+  const kids = rec['children'];
+  if (Array.isArray(kids)) for (const k of kids) remapIds(k, taken);
+}
+
 export const TOOLS: Record<string, ToolDef> = {
   paintress_viewer: {
     description:
@@ -194,9 +225,9 @@ export const TOOLS: Record<string, ToolDef> = {
 
   paintress_new: {
     description:
-      '新建文档（.ptr 是 paintress 的标准格式；.pen 仅作兼容）。创建一个带空 board 的最小可用文档，可直接 render/screenshot 再逐层 insert；已存在同名文件时报错，除非 overwrite=true。path 不带扩展名时自动补 .ptr',
+      '新建一份设计稿：创建一个带空 board 的最小可用文档，可直接 render/screenshot 再逐层 insert；已存在同名文件时报错，除非 overwrite=true。path 不带扩展名时自动补默认扩展名',
     inputSchema: {
-      path: z.string().describe('新文档路径；不带扩展名时自动补 .ptr'),
+      path: z.string().describe('新文档路径；不带扩展名时自动补默认扩展名'),
       name: z.string().optional().describe('board 名称（默认 Board）'),
       width: z.number().positive().optional().describe('board 宽（默认 900）'),
       height: z.number().positive().optional().describe('board 高（默认 600）'),
@@ -218,6 +249,10 @@ export const TOOLS: Record<string, ToolDef> = {
         version: ctx.doc.version,
         fileToken: ctx.doc.fileToken,
         variables: ctx.doc.variables ? Object.keys(ctx.doc.variables) : [],
+        projectPresets: (() => {
+          const { path: presetPath, items } = listPresets(reqStr(a, 'path'));
+          return { path: presetPath, count: items.length };
+        })(),
         topLevel: ctx.doc.children.map((c) => ({ id: (c as Record<string, unknown>)['id'], name: (c as Record<string, unknown>)['name'], type: (c as Record<string, unknown>)['type'] })),
         nodeCount: Object.values(countByType(ctx.doc.children)).reduce((s, n) => s + n, 0),
         byType: countByType(ctx.doc.children),
@@ -338,9 +373,93 @@ export const TOOLS: Record<string, ToolDef> = {
   },
 
   paintress_validate: {
-    description: '校验文档：结构错误 + 语义警告（重复 id、悬空 ref、未知类型、未定义变量）',
+    description: '校验文档：结构错误 + 语义警告（重复 id、悬空 ref、未知类型、未定义变量）。项目预设里的变量算已定义',
     inputSchema: { path: z.string() },
-    run: (a) => read(reqStr(a, 'path'), (ctx) => ctx.validation),
+    run: (a) => {
+      const path = reqStr(a, 'path');
+      const loaded = loadDoc(path);
+      // 校验看的是「文档自己有什么变量」+「项目预设提供了哪些名字」：
+      // 不能拿合并后的文档来校验，否则每个预设变量都会被误判成本地覆盖。
+      const presetNames = projectPresetNames(path);
+      return validateDoc(loaded.doc, { knownVars: presetNames, presetVars: presetNames });
+    },
+  },
+
+  paintress_preset: {
+    description:
+      '项目预设：颜色 / 倒角这类会反复微调的值在项目里存一份（__preset.ptr），设计稿里写 $key 引用。作画前先把颜色与倒角定下来注册成预设；人在查看器里改预设值，画布实时变，不用一句句说「红一点」。action=list 查看，set 新建/改值，remove 删除',
+    inputSchema: {
+      action: z.enum(['list', 'set', 'remove']),
+      path: z.string().optional().describe('设计稿或项目目录，默认当前工作目录'),
+      key: z.string().optional().describe('变量名，设计稿里写 $key；set / remove 必填'),
+      type: z.enum(['color', 'radius']).optional().describe('预设类型；set 必填'),
+      name: z.string().optional().describe('人看的名称，默认同 key'),
+      value: z.string().optional().describe("值：颜色写 #RRGGBB（或 #RGB / #RRGGBBAA），倒角写非负数字，如 '8'；set 必填"),
+    },
+    run: (a) => {
+      const from = resolve(optStr(a, 'path') ?? process.cwd());
+      const action = optStr(a, 'action') ?? 'list';
+      if (action === 'list') {
+        const { path, items } = listPresets(from);
+        return { ok: true, path, items };
+      }
+      const key = reqStr(a, 'key');
+      if (action === 'remove') return { ok: true, path: presetPathFor(from), items: removePreset(from, key) };
+      const type = optStr(a, 'type');
+      if (!isPresetType(type)) throw new Error('type 必须是 color 或 radius');
+      const name = optStr(a, 'name');
+      const items = setPreset(from, {
+        key,
+        type: type as PresetType,
+        value: reqStr(a, 'value'),
+        ...(name !== undefined ? { name } : {}),
+      });
+      return { ok: true, path: presetPathFor(from), items };
+    },
+  },
+
+  paintress_component: {
+    description:
+      '项目组件库：先查已有组件再动手，避免重复造轮子。action=list 列出可复用组件（__components.ptr 里 reusable 节点）；action=insert 把某个组件复制进设计稿——复制件自带新 id、内部 ref 已展开，可独立渲染（只复制，不做联动编辑）',
+    inputSchema: {
+      action: z.enum(['list', 'insert']),
+      path: z.string().optional().describe('设计稿或项目目录；insert 时是目标设计稿'),
+      id: z.string().optional().describe('组件 id；insert 必填'),
+      parent: z.string().optional().describe("插到哪个父节点，默认 'root'"),
+      index: z.number().int().min(0).optional(),
+    },
+    run: (a) => {
+      const action = optStr(a, 'action') ?? 'list';
+      const from = resolve(optStr(a, 'path') ?? process.cwd());
+      if (action === 'list') {
+        const compPath = componentsPathFor(from);
+        if (compPath === null) return { ok: true, path: null, items: [] };
+        return { ok: true, path: compPath, items: listComponents(compPath) };
+      }
+
+      const target = reqStr(a, 'path');
+      const compId = reqStr(a, 'id');
+      const compPath = componentsPathFor(resolve(target));
+      if (compPath === null) throw new Error('找不到项目组件库 __components.ptr（先在项目里注册）');
+      const compLoaded = readComponentsFile(compPath);
+      if (compLoaded === null) throw new Error(`组件库不可读：${compPath}`);
+
+      const warnings: string[] = [];
+      // 先展开内部 ref：复制件要自包含，不能带走一个指向组件库的悬空引用
+      const expanded = expandRefs(applyProjectPresets(compLoaded.doc, compPath).doc, warnings);
+      const node = findNodeIn(expanded, compId);
+      if (node === null) throw new Error(`组件不存在：${compId}（先 paintress_component list 看有哪些）`);
+      const copy = structuredClone(node);
+      // 复制出来的是实例，不是新的组件定义
+      delete copy['reusable'];
+
+      return write(target, (doc, mark) => {
+        remapIds(copy, new Set(collectIds(doc.children)));
+        const newId = i(doc, optStr(a, 'parent') ?? 'root', copy, optNum(a, 'index'));
+        mark([newId]);
+        return { id: newId, from: compId, componentPath: compPath, warnings };
+      });
+    },
   },
 
   paintress_render: {
@@ -351,8 +470,9 @@ export const TOOLS: Record<string, ToolDef> = {
     },
     run: (a) => {
       const out = reqStr(a, 'out');
-      const loaded = loadDoc(reqStr(a, 'path'));
-      const r = renderDocument(loaded.doc);
+      const path = reqStr(a, 'path');
+      const loaded = loadDoc(path);
+      const r = renderDocument(applyProjectPresets(loaded.doc, path).doc);
       writeFileSync(out, r.html, 'utf8');
       return { ok: true, out, canvas: r.canvas, warnings: r.warnings };
     },

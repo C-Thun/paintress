@@ -6,14 +6,20 @@ import {
   fetchChanges,
   fetchDaemonInfo,
   fetchFiles,
+  fetchComponents,
   fetchMarks,
+  fetchNotes,
+  fetchPresets,
   fetchProjects,
+  setPresetValue,
   registryEventsUrl,
   renderUrl,
   shutdownDaemon,
   unwatchProject,
+  type ComponentItem,
   type DaemonInfo,
   type Mark,
+  type PresetItem,
   type ProjectInfo,
 } from './api';
 import { Confirm, Modal } from './confirm';
@@ -29,6 +35,10 @@ import {
   type CanvasBackground,
 } from './canvas-bg';
 import { initialLang, messages, rememberLang, type Lang } from './i18n';
+import { NotesDrawer } from './notes-drawer';
+import { PresetPanel } from './preset-panel';
+import { ComponentGallery } from './component-gallery';
+import { ToolRail, type RailItem } from './tool-rail';
 
 interface Board {
   id: string;
@@ -98,6 +108,14 @@ export default function App() {
   const [canvasBg, setCanvasBg] = createSignal<CanvasBackground>(initialCanvasBackground());
   const [pending, setPending] = createSignal<PendingAction | null>(null);
   const [closed, setClosed] = createSignal(false);
+  /** 笔记抽屉（占布局，画布左侧）与右上浮动面板（预设 / 组件，互斥） */
+  const [notesOpen, setNotesOpen] = createSignal(false);
+  const [noteExists, setNoteExists] = createSignal(false);
+  const [noteMarkdown, setNoteMarkdown] = createSignal<string | null>(null);
+  const [noteError, setNoteError] = createSignal<string | null>(null);
+  const [panel, setPanel] = createSignal<'presets' | 'components' | null>(null);
+  const [presets, setPresets] = createSignal<PresetItem[]>([]);
+  const [components, setComponents] = createSignal<ComponentItem[]>([]);
   /** 无激活项目时的关窗倒计时（秒）；null = 不显示遮罩 */
   const [countdown, setCountdown] = createSignal<number | null>(null);
   /** 本次页面会话是否曾经有过项目：有过的项目全消失才是「agent 收工」，才值得弹倒计时 */
@@ -105,6 +123,10 @@ export default function App() {
   const [showUpdate, setShowUpdate] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
   const m = (): ReturnType<typeof messages> => messages(lang());
+  const railItems = (): RailItem[] => [
+    { id: 'presets', label: m().presets, icon: 'preset' },
+    { id: 'components', label: m().components, icon: 'component' },
+  ];
 
   let frameEl: HTMLIFrameElement | undefined;
   let stageEl: HTMLElement | undefined;
@@ -263,7 +285,64 @@ export default function App() {
     setActiveFile(file);
     setSelectedId(null);
     setCrumbs([]);
+    // 笔记属于上一份设计稿：换文件就收起抽屉（图标会按新文件重新出现）
+    setNotesOpen(false);
     syncUrl();
+  }
+
+  // ---------- 设计稿笔记 / 项目预设 / 组件库 ----------
+  async function loadNotes(project: string, file: string): Promise<void> {
+    try {
+      const res = await fetchNotes(project, file);
+      setNoteExists(res.exists);
+      setNoteMarkdown(res.markdown ?? null);
+      setNoteError(null);
+      if (!res.exists) setNotesOpen(false);
+    } catch (cause) {
+      setNoteExists(false);
+      setNoteMarkdown(null);
+      setNoteError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function loadPresets(project: string): Promise<void> {
+    try {
+      setPresets((await fetchPresets(project)).items);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function loadComponents(project: string): Promise<void> {
+    try {
+      setComponents((await fetchComponents(project)).items);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  /** 改一条预设：服务端写回后立即重渲染画布（SSE 也会推，双保险） */
+  async function applyPreset(key: string, value: string): Promise<void> {
+    const p = activeProject();
+    if (p === null) return;
+    try {
+      const res = await setPresetValue(p, key, value);
+      setPresets(res.items);
+      setReloadKey((n) => n + 1);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      void loadPresets(p);
+    }
+  }
+
+  function togglePanel(id: string): void {
+    const next = panel() === id ? null : id === 'presets' ? 'presets' : 'components';
+    setPanel(next);
+    const p = activeProject();
+    if (p === null) return;
+    if (next === 'presets') void loadPresets(p);
+    if (next === 'components') void loadComponents(p);
   }
 
   // ---------- 版本升级提示 ----------
@@ -385,6 +464,18 @@ export default function App() {
     };
     const onKey = (ev: KeyboardEvent): void => {
       if (isTyping(ev)) return;
+      if (ev.key === 'Escape') {
+        if (panel() !== null) {
+          setPanel(null);
+          ev.preventDefault();
+          return;
+        }
+        if (notesOpen()) {
+          setNotesOpen(false);
+          ev.preventDefault();
+          return;
+        }
+      }
       if (ev.key === ' ' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
         viewportCtl?.setSpace(true);
         ev.preventDefault();
@@ -796,6 +887,18 @@ export default function App() {
     }),
   );
 
+  // 换文件：笔记跟着换（图标按新文件有无决定显隐）
+  createEffect(
+    on([activeProject, activeFile], () => {
+      setNoteExists(false);
+      setNoteMarkdown(null);
+      setNoteError(null);
+      const p = activeProject();
+      const f = activeFile();
+      if (p !== null && f !== null) void loadNotes(p, f);
+    }),
+  );
+
   let source: EventSource | null = null;
   createEffect(
     on([activeProject, activeFile, live], () => {
@@ -805,7 +908,13 @@ export default function App() {
       const f = activeFile();
       if (!live() || !p || !f) return;
       source = new EventSource(eventsUrl(p, f));
-      source.addEventListener('change', () => setReloadKey((n) => n + 1));
+      source.addEventListener('change', () => {
+        setReloadKey((n) => n + 1);
+        // 同一条 SSE 也监听同名笔记与项目预设：改任何一个都要跟上
+        void loadNotes(p, f);
+        if (panel() === 'presets') void loadPresets(p);
+        if (panel() === 'components') void loadComponents(p);
+      });
     }),
   );
   onCleanup(() => source?.close());
@@ -1021,16 +1130,69 @@ export default function App() {
               </div>
             </div>
           </Show>
-          <iframe
-            ref={(el) => {
-              frameEl = el;
-            }}
-            class="preview"
-            title="design preview"
-            sandbox="allow-same-origin allow-scripts"
-            src={iframeSrc()}
-            onLoad={bindFrame}
-          />
+          <div class="canvas-row">
+            <Show when={notesOpen()}>
+              <NotesDrawer
+                title={m().notesTitle}
+                closeLabel={m().closePanel}
+                markdown={noteMarkdown()}
+                error={noteError()}
+                onClose={() => setNotesOpen(false)}
+              />
+            </Show>
+            <div class="canvas-wrap">
+              <iframe
+                ref={(el) => {
+                  frameEl = el;
+                }}
+                class="preview"
+                title="design preview"
+                sandbox="allow-same-origin allow-scripts"
+                src={iframeSrc()}
+                onLoad={bindFrame}
+              />
+              <Show when={noteExists() && !notesOpen()}>
+                <button class="notes-toggle" title={m().notesTitle} onClick={() => setNotesOpen(true)}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 3v5h5" />
+                    <path d="M9 13h6M9 17h4" />
+                  </svg>
+                  {m().notes}
+                </button>
+              </Show>
+              <ToolRail items={railItems()} active={panel()} onToggle={togglePanel} label={m().canvasTools} />
+              <Show when={panel() === 'presets'}>
+                <PresetPanel
+                  items={presets()}
+                  labels={{
+                    title: m().presets,
+                    close: m().closePanel,
+                    empty: m().presetEmpty,
+                    hint: m().presetHint,
+                    color: m().presetColor,
+                    radius: m().presetRadius,
+                  }}
+                  onClose={() => setPanel(null)}
+                  onSet={(key, value) => void applyPreset(key, value)}
+                />
+              </Show>
+              <Show when={panel() === 'components'}>
+                <ComponentGallery
+                  items={components()}
+                  project={activeProject() ?? ''}
+                  labels={{
+                    title: m().components,
+                    close: m().closePanel,
+                    empty: m().componentsEmpty,
+                    hint: m().componentsHint,
+                    count: m().componentsCount,
+                  }}
+                  onClose={() => setPanel(null)}
+                />
+              </Show>
+            </div>
+          </div>
         </Show>
       </main>
 

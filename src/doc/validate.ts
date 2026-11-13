@@ -14,8 +14,15 @@ export type ValidationResult = {
   warnings: ValidationIssue[];
 };
 
+export interface ValidateOptions {
+  /** 项目预设提供的变量名：引用它们不算「未定义」 */
+  knownVars?: Iterable<string>;
+  /** 文档本地定义了同名的项目预设 → 给警告（查看器里调预设不会影响这份文件） */
+  presetVars?: Iterable<string>;
+}
+
 /** 结构校验（schema）+ 语义校验（重复 id、悬空 ref、未知类型、未解析变量） */
-export function validateDoc(input: unknown): ValidationResult {
+export function validateDoc(input: unknown, opts: ValidateOptions = {}): ValidationResult {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
@@ -64,8 +71,18 @@ export function validateDoc(input: unknown): ValidationResult {
   };
   walk(doc.children, 'children');
 
-  // 未解析变量引用（$name 不在 variables 表）
-  const varNames = new Set(doc.variables ? Object.keys(doc.variables) : []);
+  // 未解析变量引用（$name 不在 variables 表，也不在项目预设里）
+  const localNames = new Set(doc.variables ? Object.keys(doc.variables) : []);
+  const varNames = new Set<string>([...localNames, ...(opts.knownVars ?? [])]);
+  for (const name of opts.presetVars ?? []) {
+    if (localNames.has(name)) {
+      warnings.push({
+        level: 'warning',
+        path: '<variables>',
+        message: `本地变量 $${name} 覆盖了项目预设（在查看器里调预设不会影响这份文件）`,
+      });
+    }
+  }
   const varRefs = new Set<string>();
   const scan = (obj: unknown): void => {
     if (typeof obj === 'string' && VARIABLE_NAME.test(obj)) varRefs.add(obj.slice(1));

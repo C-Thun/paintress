@@ -575,6 +575,17 @@ ptr:
         generator: string
         created_at: string
         updated_at: string
+        presets:
+          type: object
+          desc: '项目预设的元数据；值仍存在 variables 里，这里只放类型与名称'
+          shape:
+            version: number
+            items: 'map<变量名, {type: color|radius, name?: string}>'
+        components:
+          type: object
+          desc: '组件库标记；组件本身是 reusable: true 的节点，这里只放版本位'
+          shape:
+            version: number
       writer_rule: ptr 写入器必须输出 spec 字段
   node_extensions:
     metadata_reserved:

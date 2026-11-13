@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.aliciai-dev/paintress",
+  "title": "paintress",
+  "description": "A UI design tool for AI agents: the agent draws design files, you watch them in a local viewer and point at elements with #1.",
+  "websiteUrl": "https://github.com/aliciai-dev/paintress",
+  "repository": {
+    "url": "https://github.com/aliciai-dev/paintress",
+    "source": "github"
+  },
+  "version": "0.5.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "paintress",
+      "version": "0.5.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}

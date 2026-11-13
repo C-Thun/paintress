@@ -16,6 +16,8 @@ export interface RenderResult {
 export interface RenderOptions {
   /** 页面标题（默认 paintress render） */
   title?: string;
+  /** 透明画布底（组件 tile 用；默认白底） */
+  transparent?: boolean;
 }
 
 /**
@@ -39,7 +41,7 @@ export function renderDocument(doc: PenDocument, opts: RenderOptions = {}): Rend
     `<title>${escapeAttr(title)}</title>`,
     '<style>',
     '* { box-sizing: border-box; margin: 0; padding: 0; }',
-    'body { margin: 0; background: #ffffff; }',
+    `body { margin: 0; background: ${opts.transparent === true ? 'transparent' : '#ffffff'}; }`,
     '.ptr-canvas { position: relative; }',
     '</style>',
     '</head>',

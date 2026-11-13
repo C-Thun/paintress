@@ -44,13 +44,13 @@ async function callRaw(name: string, args: Record<string, unknown>): Promise<Too
 }
 
 describe('工具发现', () => {
-  it('注册 14 个工具', async () => {
+  it('注册 16 个工具', async () => {
     const list = await client.listTools();
     expect(list.tools.map((t) => t.name).sort()).toEqual([
-      'paintress_batch', 'paintress_delete', 'paintress_doc_info', 'paintress_get',
-      'paintress_insert', 'paintress_marks', 'paintress_move', 'paintress_new',
-      'paintress_query', 'paintress_render', 'paintress_screenshot', 'paintress_update',
-      'paintress_validate', 'paintress_viewer',
+      'paintress_batch', 'paintress_component', 'paintress_delete', 'paintress_doc_info',
+      'paintress_get', 'paintress_insert', 'paintress_marks', 'paintress_move',
+      'paintress_new', 'paintress_preset', 'paintress_query', 'paintress_render',
+      'paintress_screenshot', 'paintress_update', 'paintress_validate', 'paintress_viewer',
     ]);
   });
 

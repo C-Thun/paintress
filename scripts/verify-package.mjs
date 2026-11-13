@@ -68,6 +68,19 @@ if (existsSync(cliPath)) {
   if (!hasShebang) errors.push('dist/cli.js 缺少 shebang，bin 无法直接执行');
 }
 
+// 5) MCP Registry 清单：版本号必须与 package.json 一致，否则注册表里是旧版本
+if (existsSync(join(root, 'server.json'))) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(root, 'server.json'), 'utf8'));
+    const same = manifest.version === pkg.version;
+    checked.push(`${same ? '✓' : '✗'} server.json  version ${manifest.version} (package.json ${pkg.version})`);
+    if (!same) errors.push(`server.json 的 version（${manifest.version}）与 package.json（${pkg.version}）不一致`);
+  } catch (cause) {
+    checked.push('✗ server.json  (JSON 解析失败)');
+    errors.push(`server.json 不是合法 JSON：${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+}
+
 console.log(checked.join('\n'));
 if (errors.length > 0) {
   console.error(`\n发布自检失败（${errors.length} 项）：`);

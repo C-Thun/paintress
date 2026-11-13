@@ -11,7 +11,7 @@ const SERVER_VERSION = VERSION;
  * 连接时交给客户端模型的使用说明（MCP initialize 的 instructions）。
  * 头号规则是「作画前把查看器拉起来」——人看不到进程状态，agent 不等提醒就该做。
  */
-const INSTRUCTIONS = `paintress is a design-document operation layer: \`.ptr\` (standard) and \`.pen\` (compatible) JSON files, edited through tools and rendered by a local viewer.
+const INSTRUCTIONS = `paintress is a design tool for AI agents: design files are JSON, edited through tools and rendered by a local viewer.
 
 VIEWER — the human only sees your work in the viewer, so keep it running:
 - Call \`paintress_viewer\` before the first write of a drawing session (creating, editing or showing a design) — do not wait to be asked.

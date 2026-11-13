@@ -15,13 +15,15 @@
 
 ### 层二：排得上，但要先定一两件小事
 
+> 2026-11-13 已收口两项：**trusted publishing**（`publish.yml` 用 OIDC + `npm publish --provenance`，无任何 token；`paintress@0.5.2` 在 registry 上带 SLSA 证明）、
+> **MCP Registry `server.json`**（入仓，`verify:pkg` 会校验版本号与 package.json 一致）。
+
 | 条目 | 卡在哪 |
 | --- | --- |
-| 附注 md **只读**视图 | 范围已砍掉写入（见该节「已定」）；剩两个小决策：面板位置、md→HTML 方案 |
-| 浏览器端交互回归测试 | 需复用 daemon 启动与 fixture（`test/web.spec.ts` 有骨架），~半天 |
-| trusted publishing 迁移 | 硬期限 2027-01；CI 已有 OIDC + provenance，剩 npm 侧配置与一次真发布验证 |
 | 查看器 UI 缺口（只读属性面板 / 多稿切换） | 纯体验增益，可拆成两件分别半天 |
-| MCP Registry `server.json` | 可选尾巴，等发布线收口时顺手 |
+
+> 2026-11-13 另收口两项：**附注 md 只读视图**（`specs/notes-drawer.md`，画布左侧抽屉）、
+> **浏览器端交互回归测试**（`test/ui-interaction.spec.ts`，真实 Chromium 跑构建产物）。
 
 ### 层三：等触发或不划算
 
@@ -88,6 +90,11 @@ node dist/cli.js update demo/hello.ptr <id> '{"content":"x"}'  # 改完前端自
 已完成（2026-11-11）：摘要见 `FINISHED.md#阶段 6 — 画布交互（2026-11-11）`，实现记录 `.agents/implementations/2026-11-11-stage6-canvas.md`；方案留在 `specs/canvas-interaction.md`。
 
 ## 画谱（Album）— 项目级预设与组件体系（2026-11-12 拟定）
+
+> **2026-11-13：框架级子集已提前落地**（operator 要求提前到当前阶段）：
+> 项目级 `__preset.ptr` / `__components.ptr`、`paintress_preset` / `paintress_component`、
+> 查看器里的预设面板与组件画廊。方案与验收见 `specs/project-presets.md`、`specs/components.md`。
+> 本节剩下的才是 Album 级能力（跨项目继承、变体/参数、真 ref）。
 
 > operator 2026-11-12 原话：**「这个设计的最关键的一点要提供组件或是预设概念，用于框死一个项目中的颜色，样式，以及一个一个的可复用组件，这块的确立及调整功能作为后面的重点」**。
 

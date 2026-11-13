@@ -5,7 +5,7 @@ import {
   closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, join, relative, resolve } from 'node:path';
+import { dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Registry, type ProjectEntry } from './registry.js';
 import { MarksStore } from './marks.js';
@@ -15,6 +15,20 @@ import { lockPath, pidPath, safeJoin, socketPath } from './paths.js';
 import { WatchManager } from './watcher.js';
 import { VersionChecker } from './update-check.js';
 import { loadDoc, renderDocument } from '../index.js';
+import type { PenDocument } from '../schema/index.js';
+import {
+  applyProjectPresets,
+  componentsPathFor,
+  ensureProjectScaffold,
+  findNodeIn,
+  isPresetType,
+  listComponents,
+  listPresets,
+  presetPathFor,
+  readTextIfExists,
+  setPreset,
+  type PresetType,
+} from '../doc/project.js';
 
 
 const DEFAULT_PORT = 3316;
@@ -369,6 +383,15 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
               // 人显式 watch 的项目撤回待执行的自动退场
               cancelAutoDetach(entry.name);
               watchers.watchDesigns(entry.rootReal, entry.depth, scheduleRegistryNotify);
+              // 项目级预设 / 组件库：不存在就建（已存在一个字都不动）。失败不影响注册。
+              try {
+                const created = ensureProjectScaffold(entry.rootReal).created;
+                if (created.length > 0 && !opts.quiet) {
+                  process.stderr.write(`paintress web: 项目 ${entry.name} 初始化 ${created.map((f) => relative(entry.rootReal, f)).join('、')}\n`);
+                }
+              } catch (cause) {
+                process.stderr.write(`paintress web: 项目脚手架创建失败（${cause instanceof Error ? cause.message : String(cause)}）\n`);
+              }
               reply({ ok: true, watched: true, project: registry.info(entry) });
               notifyRegistry();
               break;
@@ -591,6 +614,131 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           sendJson(405, { ok: false, error: `不支持的方法：${req.method ?? '?'}` });
           return;
         }
+        // 同名设计稿笔记（.md）：只读，供画布左侧抽屉
+        if (segments[1] === 'notes' && req.method === 'GET') {
+          const name = url.searchParams.get('project') ?? '';
+          const relPath = url.searchParams.get('path') ?? '';
+          const entry = registry.get(name);
+          if (!entry) {
+            sendJson(404, { ok: false, error: `未注册的项目：${name}` });
+            return;
+          }
+          const abs = safeJoin(entry.rootReal, relPath);
+          if (!abs) {
+            sendJson(404, { ok: false, error: '文件不存在' });
+            return;
+          }
+          const noteAbs = abs.replace(/\.(ptr|pen)$/i, '.md');
+          let markdown: string | null;
+          try {
+            markdown = readTextIfExists(noteAbs);
+          } catch (cause) {
+            sendJson(413, { ok: false, error: cause instanceof Error ? cause.message : String(cause) });
+            return;
+          }
+          if (markdown === null) {
+            sendJson(200, { ok: true, exists: false });
+            return;
+          }
+          const noteRel = relative(entry.rootReal, noteAbs).split(sep).join('/');
+          sendJson(200, { ok: true, exists: true, path: noteRel, markdown });
+          return;
+        }
+        // 项目预设：读全部 / 改一条（改完立即回传最新列表，前端据此刷新画布）
+        if (segments[1] === 'presets') {
+          const qProject = url.searchParams.get('project') ?? '';
+          if (req.method === 'GET') {
+            const entry = registry.get(qProject);
+            if (!entry) {
+              sendJson(404, { ok: false, error: `未注册的项目：${qProject}` });
+              return;
+            }
+            const { path, items } = listPresets(entry.rootReal);
+            sendJson(200, { ok: true, path, items });
+            return;
+          }
+          if (req.method === 'PUT' || req.method === 'POST') {
+            if (!isTrustedWrite(req)) {
+              sendJson(403, { ok: false, error: '缺少 x-paintress 头' });
+              return;
+            }
+            const raw = await readBody();
+            let body: Record<string, unknown>;
+            try {
+              body = JSON.parse(raw) as Record<string, unknown>;
+            } catch {
+              sendJson(400, { ok: false, error: '请求体不是合法 JSON' });
+              return;
+            }
+            // 写操作的项目名可以放在 body 里（前端就是这么发的），也兼容 query
+            const name = qProject !== '' ? qProject : typeof body['project'] === 'string' ? body['project'] : '';
+            const entry = registry.get(name);
+            if (!entry) {
+              sendJson(404, { ok: false, error: `未注册的项目：${name}` });
+              return;
+            }
+            const key = typeof body['key'] === 'string' ? body['key'] : '';
+            const value = body['value'];
+            if (key === '' || (typeof value !== 'string' && typeof value !== 'number')) {
+              sendJson(400, { ok: false, error: '缺少 key 或 value' });
+              return;
+            }
+            // 改值可以不传 type：按现有预设类型推断
+            const existing = listPresets(entry.rootReal).items.find((p) => p.key === key);
+            const typeRaw = body['type'] ?? existing?.type;
+            if (!isPresetType(typeRaw)) {
+              sendJson(400, { ok: false, error: 'type 必须是 color 或 radius' });
+              return;
+            }
+            const label = typeof body['name'] === 'string' && body['name'] !== '' ? body['name'] : undefined;
+            try {
+              const items = setPreset(entry.rootReal, {
+                key,
+                type: typeRaw as PresetType,
+                value: String(value),
+                ...(label !== undefined ? { name: label } : {}),
+              });
+              notifyRegistry();
+              sendJson(200, { ok: true, path: presetPathFor(entry.rootReal), items });
+            } catch (cause) {
+              sendJson(400, { ok: false, error: cause instanceof Error ? cause.message : String(cause) });
+            }
+            return;
+          }
+          sendJson(405, { ok: false, error: `不支持的方法：${req.method ?? '?'}` });
+          return;
+        }
+        // 项目组件库：只读列表（尺寸用渲染包围盒，供画廊 tile 等比缩放）
+        if (segments[1] === 'components' && req.method === 'GET') {
+          const name = url.searchParams.get('project') ?? '';
+          const entry = registry.get(name);
+          if (!entry) {
+            sendJson(404, { ok: false, error: `未注册的项目：${name}` });
+            return;
+          }
+          const compPath = componentsPathFor(entry.rootReal);
+          if (compPath === null) {
+            sendJson(200, { ok: true, path: null, items: [] });
+            return;
+          }
+          const doc = applyProjectPresets(loadDoc(compPath).doc, compPath).doc;
+          const items = listComponents(compPath).map((c) => {
+            const node = findNodeIn(doc.children, c.id);
+            if (node === null) return c;
+            try {
+              // SAFETY: node 取自同一份已过 schema 校验的 doc 树，单节点文档与整份文档同构
+              const single = renderDocument({ ...doc, children: [node] } as unknown as PenDocument, {
+                title: c.id,
+                transparent: true,
+              });
+              return { ...c, width: Math.round(single.canvas.width), height: Math.round(single.canvas.height) };
+            } catch {
+              return c;
+            }
+          });
+          sendJson(200, { ok: true, path: compPath, items });
+          return;
+        }
         sendJson(404, { ok: false, error: `未知 API：${url.pathname}` });        return;
       }
 
@@ -636,13 +784,18 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
         entry.browsers.add(token);
         // 有人在看：撤销待执行的自动退场
         cancelAutoDetach(entry.name);
-        const release = watchers.acquire(abs, () => {
+        const notifyChange = (): void => {
           res.write(`event: change\ndata: ${JSON.stringify({ path: relPath, at: Date.now() })}\n\n`);
-        });
+        };
+        const releases = [watchers.acquire(abs, notifyChange)];
+        // 同名笔记（可能还不存在，创建时也要推）与项目预设：改任何一个，当前画布/抽屉都要更新
+        releases.push(watchers.acquire(abs.replace(/\.(ptr|pen)$/i, '.md'), notifyChange));
+        const presetAbs = presetPathFor(entry.rootReal);
+        if (presetAbs !== null) releases.push(watchers.acquire(presetAbs, notifyChange));
         const keepAlive = setInterval(() => res.write(': ping\n\n'), 20_000);
         const done = (): void => {
           clearInterval(keepAlive);
-          release();
+          for (const release of releases) release();
           entry.browsers.delete(token);
           maybeScheduleAutoDetach(entry.name);
         };
@@ -667,7 +820,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           return;
         }
         const loaded = loadDoc(abs);
-        const rendered = renderDocument(loaded.doc, { title: relPath });
+        // 项目预设：设计稿里只写 $key，值在 __preset.ptr 里存一份
+        const rendered = renderDocument(applyProjectPresets(loaded.doc, abs).doc, { title: relPath });
         // base href 让图像填充等相对资源解析到 /files/<project>/<dir>/
         const dir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/') + 1) : '';
         const baseHref = `/files/${entry.name.split('/').map(encodeURIComponent).join('/')}/${dir
@@ -682,6 +836,35 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
           html = html.replace('</body>', `${liveScript}</body>`);
         }
         send(200, html);
+        return;
+      }
+
+      // ---------- 单组件渲染（组件画廊 tile 用）----------
+      if (segments[0] === 'render-component') {
+        const project = url.searchParams.get('project') ?? '';
+        const id = url.searchParams.get('id') ?? '';
+        const entry = registry.get(project);
+        if (!entry) {
+          send(404, 'project not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        const compPath = componentsPathFor(entry.rootReal);
+        if (compPath === null || id === '') {
+          send(404, 'component not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        const doc = applyProjectPresets(loadDoc(compPath).doc, compPath).doc;
+        const node = findNodeIn(doc.children, id);
+        if (node === null) {
+          send(404, 'component not found', 'text/plain; charset=utf-8');
+          return;
+        }
+        // SAFETY: node 取自同一份已过 schema 校验的 doc 树，单节点文档与整份文档同构
+        const rendered = renderDocument({ ...doc, children: [node] } as unknown as PenDocument, {
+          title: id,
+          transparent: true,
+        });
+        send(200, rendered.html);
         return;
       }
 

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "marked": "^18.2.0",
     "solid-js": "^1.9.18"
   },
   "devDependencies": {

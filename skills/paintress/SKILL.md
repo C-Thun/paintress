@@ -1,17 +1,15 @@
 ---
 name: paintress
-description: Create, read, query, edit, render and screenshot `.ptr` (paintress standard format) and `.pen` (compatible) design documents through MCP tools, and drive the local viewer. Use when the user refers to a design file, wants a new design file created, a node in it, a board screenshot, or shorthand ids like #1.
+description: Create, read, query, edit, render and screenshot design files through MCP tools, and drive the local viewer. Use when the user refers to a design file, wants a new design file created, a node in it, a board screenshot, or shorthand ids like #1.
 ---
 
 # paintress
 
 paintress is a design-document operation layer: JSON design files in, MCP tools and a CLI out. It does not draw anything itself — it reads and writes the file, and renders it to HTML for a browser.
 
-## Formats
+## Files
 
-- **`.ptr` is paintress's standard format.** Create this by default for anything new. It carries the `x-paintress` block (`spec`, `generator`, timestamps) and is the layer that evolves.
-- **`.pen` is compatible**: read, queried, edited and rendered exactly the same way. Do not convert a `.pen` the user is still working with — edit it in place.
-- Both render identically; the difference is only which layer owns future format changes.
+Design files are JSON, and `paintress_new` picks the extension for you — never hand-write design JSON and never rename a file to change formats. If the user already has a `.pen` file, edit it in place instead of converting it.
 
 ## Check before installing
 
@@ -36,7 +34,7 @@ Both are **idempotent**: if a viewer is already up they reuse it and start nothi
 | Tool | What it does |
 | --- | --- |
 | `paintress_viewer` | **ensure the viewer is up** and register the project; idempotent, returns the URL |
-| `paintress_new` | **create a document.** Writes a valid `.ptr` with one empty board; returns the `boardId`. Refuses to overwrite; `path` without an extension gets `.ptr` |
+| `paintress_new` | **create a design file.** Writes a valid document with one empty board; returns the `boardId`. Refuses to overwrite; a `path` without an extension gets the default one |
 | `paintress_doc_info` | document summary: version, format flavor, node counts, variables, top-level nodes |
 | `paintress_query` | find nodes by type / name (exact or regex) / id / reusable |
 | `paintress_get` | fetch one node's subtree; `depth` controls how far down |
@@ -49,6 +47,22 @@ Both are **idempotent**: if a viewer is already up they reuse it and start nothi
 | `paintress_render` | write the canvas as a standalone HTML file |
 | `paintress_screenshot` | render to PNG (headless Chromium); pass `board` (id or name) to capture one board instead of the whole canvas |
 | `paintress_marks` | read the user's click markers (`#1 → node id`) |
+| `paintress_preset` | project presets (colors / corner radii): `list`, `set`, `remove` |
+| `paintress_component` | project component library: `list` reusable components, `insert` one as a copy |
+
+## Design system: presets and components
+
+Two project-level files keep a design consistent. Both are created automatically when the project is registered; the human never has to manage them.
+
+**Presets (`__preset.ptr`) — colors and corner radii live in one place.**
+- Before the first shape of a session, call `paintress_preset` with `action: "list"`. If it is empty, propose a small palette and a radius scale, then register each one with `action: "set"` (`type: "color"` or `type: "radius"`).
+- In the design, **always reference a preset** (`"fill": "$color-brand"`), never paste a raw hex or radius when a preset exists. Raw values are how the design drifts.
+- The human tunes preset values in the viewer and the canvas updates instantly. Do not overwrite a preset value unless asked — that is their knob.
+
+**Components (`__components.ptr`) — look before you build.**
+- Before drawing a button, card, input, etc., call `paintress_component` with `action: "list"`.
+- If one fits, `action: "insert"` copies it into the design with fresh ids (a copy, not a live link) — then adjust the copy.
+- After you build something reusable, register it in the component library (`paintress_insert` with `"reusable": true`), so the next session can find it. Never rebuild a component that already exists.
 
 ## Working rules
 
@@ -58,7 +72,8 @@ Both are **idempotent**: if a viewer is already up they reuse it and start nothi
 4. **`#N` means a marker.** When the user writes `#1`, call `paintress_marks` and map `#1` to a real node id. Markers are per viewer session.
 5. **Top-level nodes are boards.** Use `paintress_doc_info` to list them before guessing what "the second screen" means.
 6. **After a batch, validate.** `paintress_validate` catches structural mistakes before the user opens the file.
-7. **Screenshots are for you.** `paintress_screenshot` is how you look at the design; the HTML viewer is for the human. When a document has several boards, pass `board` to get just that page — an ambiguous name errors out and lists the candidates rather than guessing.
+7. **Presets before pixels, components before building.** See above: colors and radii go through `paintress_preset`, and the component library is checked before anything new is drawn.
+8. **Screenshots are for you.** `paintress_screenshot` is how you look at the design; the HTML viewer is for the human. When a document has several boards, pass `board` to get just that page — an ambiguous name errors out and lists the candidates rather than guessing.
 
 ## Node fields worth knowing
 
@@ -84,7 +99,7 @@ When the user refers to a design, asks to see one, or asks to draw something in 
 
 Starting the viewer for the first time opens the browser on the agent's own project; you do not have to tell the user to visit anything.
 
-If the design lives elsewhere (a `.pen`/`.ptr` outside the working directory, or a second project), bind it yourself:
+If the design lives elsewhere (a design file outside the working directory, or a second project), bind it yourself:
 
 ```bash
 paintress watch <name> <dir> [--depth 1..6]

@@ -36,6 +36,11 @@ import { VERSION } from './shared/version.js';
  *   paintress render <file> <out.html>
  *   paintress shot <file> <out.png> [--scale n] [--board id|name]
  *   paintress validate <file>
+ *   paintress preset list [dir]                       项目预设列表
+ *   paintress preset set <dir> <key> <type> <value>   写一条预设（type: color|radius）
+ *   paintress preset remove <dir> <key>               删一条预设
+ *   paintress component list [dir]                    项目组件库列表
+ *   paintress component insert <file> <id>            把组件复制进设计稿
  *   paintress web [--port n] [--idle ms] [--daemon]   确保 web 在跑（幂等：已在跑就复用）
  *   paintress ping                                    检查 web 是否在运行
  *   paintress status                                  查看已注册项目
@@ -56,7 +61,7 @@ export interface ParsedCommand {
 
 const NO_OPEN_FLAG = 'no-open';
 
-const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force', 'board', NO_OPEN_FLAG]);
+const FLAG_KEYS = new Set(['type', 'name', 'regex', 'id', 'reusable', 'depth', 'index', 'scale', 'port', 'idle', 'daemon', 'dry-run', 'opencode-layout', 'width', 'height', 'fill', 'layout', 'padding', 'gap', 'force', 'board', 'parent', NO_OPEN_FLAG]);
 const BOOLEAN_FLAGS = new Set(['regex', 'reusable', 'daemon', 'dry-run', 'force', NO_OPEN_FLAG]);
 
 /** 纯函数：argv → 命令 + 位置参数 + 标志（可单测） */
@@ -335,9 +340,56 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    let out: ToolOutput;
+
+    // ---- 项目预设 / 组件库（与 MCP 同一套 handler；不依赖 daemon）----
+    if (cmd === 'preset') {
+      const action = file ?? 'list';
+      if (action === 'list') {
+        out = await call('paintress_preset', { action: 'list', ...(a1 !== undefined ? { path: a1 } : {}) });
+      } else if (action === 'set') {
+        if (!a1 || !a2 || !positionals[3] || !positionals[4]) {
+          throw new Error('用法：paintress preset set <dir> <key> <color|radius> <value> [--name 名称]');
+        }
+        out = await call('paintress_preset', {
+          action: 'set',
+          path: a1,
+          key: a2,
+          type: positionals[3],
+          value: positionals[4],
+          ...(flagStr(flags, 'name') !== undefined ? { name: flagStr(flags, 'name') } : {}),
+        });
+      } else if (action === 'remove') {
+        if (!a1 || !a2) throw new Error('用法：paintress preset remove <dir> <key>');
+        out = await call('paintress_preset', { action: 'remove', path: a1, key: a2 });
+      } else {
+        throw new Error(`未知 preset 动作：${action}（list / set / remove）`);
+      }
+      console.log(JSON.stringify(out, null, 2));
+      return 0;
+    }
+    if (cmd === 'component') {
+      const action = file ?? 'list';
+      if (action === 'list') {
+        out = await call('paintress_component', { action: 'list', ...(a1 !== undefined ? { path: a1 } : {}) });
+      } else if (action === 'insert') {
+        if (!a1 || !a2) throw new Error('用法：paintress component insert <file> <id> [--parent p] [--index n]');
+        out = await call('paintress_component', {
+          action: 'insert',
+          path: a1,
+          id: a2,
+          ...(flagStr(flags, 'parent') !== undefined ? { parent: flagStr(flags, 'parent') } : {}),
+          ...(flagNum(flags, 'index') !== undefined ? { index: flagNum(flags, 'index') } : {}),
+        });
+      } else {
+        throw new Error(`未知 component 动作：${action}（list / insert）`);
+      }
+      console.log(JSON.stringify(out, null, 2));
+      return 0;
+    }
+
     if (!file) throw new Error('缺少 <file> 参数');
 
-    let out: ToolOutput;
     switch (cmd) {
       case 'new': {
         const name = flagStr(flags, 'name');

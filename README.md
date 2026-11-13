@@ -1,6 +1,6 @@
 <div align="center">
   <img src="assets/icon-512-wordmark.webp" width="200" alt="paintress">
-  <p>Design-document operation layer for AI agents</p>
+  <p>A UI design tool for AI agents</p>
   <p><a href="README.zh-CN.md">中文</a></p>
 </div>
 
@@ -8,9 +8,13 @@
 
 ## What it is
 
-paintress reads and writes structured design documents — JSON files with a documented schema. **`.ptr` is paintress's standard format**: everything paintress creates is `.ptr`. **`.pen` is compatible**: read, edited and rendered the same way, never converted behind your back. It renders documents to HTML, serves a local viewer, and exposes the same operations as MCP tools and as a CLI.
+paintress is a UI design tool for AI agents. You describe a screen in chat, the agent draws it into a design file, and you watch it appear in your browser — no canvas to drag, no design app to learn.
 
-It is not an editor. There is no canvas, no drag-and-drop, no property panel. A human looks at the design in a browser and clicks nodes to point at them; the agent does the reading and writing.
+You point instead of describing: click any element in the viewer and it gets a short number (`#1`), so "make #1 blue" changes exactly that element.
+
+Designs are plain JSON files inside your project, so they diff and commit like code.
+
+The agent does the reading and writing, through MCP tools or the CLI. The browser viewer is for looking, clicking and marking.
 
 | Part | Purpose |
 | --- | --- |
@@ -45,7 +49,7 @@ paintress install pi cursor # or only the ones you name
 paintress mcp                                              start the stdio MCP server
 paintress new <file> [--name n] [--width n] [--height n] [--fill c]
                       [--layout vertical|horizontal|none] [--padding n] [--gap n] [--force]
-                                                           create a .ptr (one empty board)
+                                                           create a design file (one empty board)
 paintress info <file>                                      document summary
 paintress query <file> [--type t] [--name n|--regex]    find nodes
 paintress get <file> <id> [--depth n]                   read a node subtree
@@ -55,6 +59,8 @@ paintress delete <file> <id>                            remove a node
 paintress move <file> <id> <parent> [--index n]         reparent a node
 paintress batch <file> '<ops-json>'                     several operations at once
 paintress validate <file>                               check against the format spec
+paintress preset list|set|remove ...                    project presets (colors / radii)
+paintress component list|insert ...                     project component library
 paintress render <file> <out.html>                      write the canvas as HTML
 paintress shot <file> <out.png> [--scale n] [--board id|name]  render to PNG (one board or the whole canvas)
 
@@ -73,12 +79,16 @@ paintress mcp-config <client>                           print the config snippet
 ```bash
 paintress web --daemon
 paintress watch demo ./demo
-# open http://localhost:3316/demo?file=hello.ptr
+# open http://localhost:3316/demo
 ```
 
 `paintress web --daemon` is idempotent: if a viewer is already running it prints that process's `pid` / `port` / `http` and exits, so it is safe to run before every drawing session — there is never a second instance. The foreground form (`paintress web`) reuses a running viewer the same way instead of erroring; it only blocks when it had to start one. `paintress stop` is how you replace a running viewer (e.g. on another port).
 
 Agents get the same guarantee from the MCP side: `paintress_viewer` ensures the viewer and registers the current project, and the MCP server re-checks it before every write, so the viewer is up before the first edit instead of after someone asks.
+
+A design file that has a sibling Markdown file of the same name (`home.ptr` → `home.md`) gets a notes button in the top-left corner of the canvas. Click it and the canvas narrows to make room for the note, read-only: what the design is for, what is still open, which requirement it answers.
+
+The rail in the top-right corner holds the project's design system. **Presets** are the project's colors and corner radii: the agent references them (`$color-brand`) instead of pasting values, and you can change one here and watch the canvas update — no more "a bit bluer". **Components** is a read-only gallery of everything reusable the agent has built so far, so you can see progress and the agent can look before rebuilding something that already exists.
 
 Canvas navigation: wheel zooms at the pointer, space / middle button / empty area drags to pan, `Ctrl/Cmd+0` returns to 100%, `Shift+1` fits the window. Files with more than one board get a board strip. Edits made through the CLI or MCP are highlighted in the viewer, and clicks assign short ids that the agent can read back with `paintress_marks`.
 
@@ -88,7 +98,7 @@ The viewer follows the agent instead of asking you to manage it. When an agent s
 
 When npm has a newer release than the running one, the version badge in the header grows a second line in rust red; clicking it opens the upgrade prompt (one copyable sentence) and the GitHub link. The check is client-optional on the daemon side: if npm is unreachable, the badge simply stays as it is.
 
-The toolbar's right side has two viewer-only controls. **Canvas background** switches Light / Gray / Dark for the design surface without touching the rest of the UI. **Language** switches the interface between 中文 and EN; on first load it follows the browser, and anything that is not Chinese gets English. Both are per-browser and remembered locally. Registering a project, or dropping a new `.ptr` / `.pen` into a watched directory, updates every open viewer without a reload.
+The toolbar's right side has two viewer-only controls. **Canvas background** switches Light / Gray / Dark for the design surface without touching the rest of the UI. **Language** switches the interface between 中文 and EN; on first load it follows the browser, and anything that is not Chinese gets English. Both are per-browser and remembered locally. Registering a project, or dropping a new design file into a watched directory, updates every open viewer without a reload.
 
 ## MCP clients
 
@@ -115,10 +125,12 @@ paintress mcp-config cursor   # print the exact snippet instead of editing files
 ## Documentation
 
 - `specs/PLAN.md` — roadmap and open questions
-- `format/spec.yaml` — the document format spec (the `.pen` profile is frozen; `.ptr` evolves)
-- `format/README.md` — how the two layers relate, and why `.ptr` is the standard format
+- `format/spec.yaml` — the design file format spec
+- `format/README.md` — how the format layers relate
 - `.agents/memory/ARCHITECTURE.md` — design decisions and their rationale
 - `.agents/implementations/` — per-change records with measurements
+
+paintress also opens existing `.pen` design files as-is.
 
 ## Release (maintainers)
 
@@ -237,7 +249,7 @@ paintress doctor                                        # entry present, command
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}\n' | paintress mcp
 ```
 
-The second command must answer with a `result` containing `"serverInfo": {"name": "paintress", …}`. After a session restart, `paintress_doc_info` on any `.ptr` or `.pen` file is the end-to-end check.
+The second command must answer with a `result` containing `"serverInfo": {"name": "paintress", …}`. After a session restart, `paintress_doc_info` on any design file is the end-to-end check.
 
 ### 5. Multi-agent rules
 

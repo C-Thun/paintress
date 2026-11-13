@@ -137,3 +137,70 @@ export function fetchChanges(project: string, file: string): Promise<ChangesResp
     `/api/changes?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file)}`,
   );
 }
+
+// ---------- 项目预设 / 组件库 / 笔记（规格见 specs/project-presets.md、specs/components.md）----------
+
+export interface PresetItem {
+  /** 变量名，设计稿里写 `$key` */
+  key: string;
+  type: 'color' | 'radius';
+  name: string;
+  value: string;
+}
+
+export interface PresetsResponse {
+  ok: boolean;
+  path: string | null;
+  items: PresetItem[];
+}
+
+export interface NotesResponse {
+  ok: boolean;
+  exists: boolean;
+  path?: string;
+  markdown?: string;
+}
+
+export interface ComponentItem {
+  id: string;
+  name: string;
+  type: string;
+  /** 渲染包围盒（画廊按它等比缩放）；取不到时退回节点显式尺寸 */
+  width?: number;
+  height?: number;
+}
+
+export interface ComponentsResponse {
+  ok: boolean;
+  path: string | null;
+  items: ComponentItem[];
+}
+
+export function fetchNotes(project: string, file: string): Promise<NotesResponse> {
+  return getJson<NotesResponse>(`/api/notes?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file)}`);
+}
+
+export function fetchPresets(project: string): Promise<PresetsResponse> {
+  return getJson<PresetsResponse>(`/api/presets?project=${encodeURIComponent(project)}`);
+}
+
+/** 改一条预设值：写回 `__preset.ptr`，返回最新列表 */
+export async function setPresetValue(project: string, key: string, value: string): Promise<PresetsResponse> {
+  const res = await fetch('/api/presets', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', ...WRITE_HEADERS },
+    body: JSON.stringify({ project, key, value }),
+  });
+  const body = (await res.json()) as PresetsResponse & { error?: string };
+  if (!res.ok || !body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body;
+}
+
+export function fetchComponents(project: string): Promise<ComponentsResponse> {
+  return getJson<ComponentsResponse>(`/api/components?project=${encodeURIComponent(project)}`);
+}
+
+/** 组件 tile 的 iframe 地址：单节点、透明底 */
+export function componentRenderUrl(project: string, id: string): string {
+  return `/render-component?project=${encodeURIComponent(project)}&id=${encodeURIComponent(id)}`;
+}

@@ -1,6 +1,6 @@
 <div align="center">
   <img src="assets/icon-512-wordmark.webp" width="200" alt="paintress">
-  <p>面向 AI agent 的设计稿操作层</p>
+  <p>给 AI agent 用的界面设计工具</p>
   <p><a href="README.md">English</a></p>
 </div>
 
@@ -8,9 +8,13 @@
 
 ## 这是什么
 
-paintress 读写结构化的设计稿——带公开 schema 的 JSON 文件。**`.ptr` 是 paintress 的标准格式**：paintress 创建的一切都是 `.ptr`。**`.pen` 兼容**：读取、编辑、渲染完全一致，绝不在背后悄悄转换。它把设计稿渲染成 HTML，起一个本地查看器，并把同一套操作同时暴露为 MCP 工具和 CLI。
+paintress 是一个给 AI agent 用的界面设计工具。你在对话里说要什么界面，agent 把它画进设计文件，你在浏览器里看到结果——没有画布要拖，也没有设计软件要学。
 
-它不是编辑器：没有画布、没有拖拽、没有属性面板。人在浏览器里看设计稿并点击节点指认目标，agent 负责读写。
+你点，它改：在查看器里点一下元素，它就得到一个短号（`#1`），说「#1 改成蓝色」改的就是那一个。
+
+设计稿是项目里的普通 JSON 文件，能 diff、能评审、能提交。
+
+读写由 agent 通过 MCP 工具或命令行完成；浏览器里的查看器只负责看、点、标。
 
 | 组成 | 作用 |
 | --- | --- |
@@ -45,7 +49,7 @@ paintress install pi cursor # 或只写指定的客户端
 paintress mcp                                             启动 stdio MCP server
 paintress new <file> [--name n] [--width n] [--height n] [--fill c]
                     [--layout vertical|horizontal|none] [--padding n] [--gap n] [--force]
-                                                          新建 .ptr（一个空画板）
+                                                          新建设计稿（一个空画板）
 paintress info <file>                                     文档摘要
 paintress query <file> [--type t] [--name n|--regex]   条件查询节点
 paintress get <file> <id> [--depth n]                  读取节点子树
@@ -55,6 +59,8 @@ paintress delete <file> <id>                           删除节点
 paintress move <file> <id> <parent> [--index n]        移动节点
 paintress batch <file> '<ops-json>'                    一次执行多个操作
 paintress validate <file>                              按格式规格校验
+paintress preset list|set|remove ...                   项目预设（颜色 / 倒角）
+paintress component list|insert ...                    项目组件库
 paintress render <file> <out.html>                     渲染为 HTML
 paintress shot <file> <out.png> [--scale n]            渲染为 PNG
 
@@ -73,16 +79,20 @@ paintress mcp-config <client>                          打印单个客户端的�
 ```bash
 paintress web --daemon
 paintress watch demo ./demo
-# 打开 http://localhost:3316/demo?file=hello.ptr
+# 打开 http://localhost:3316/demo
 ```
 
 `paintress web --daemon` 是幂等的：已经在跑就打印那个进程的 `pid` / `port` / `http` 后退出，所以每次开始作画前无条件跑一遍都没问题——永远不会出现第二个实例。前台形式（`paintress web`）同样复用正在跑的查看器，而不是报错；只有它自己真去启动时才会占住终端。要换端口/重启，用 `paintress stop`。
 
 agent 从 MCP 侧拿到同样的保证：`paintress_viewer` 确保查看器在跑并把当前项目注册进去，MCP server 还会在每次写操作前再确认一遍——于是查看器是在第一次编辑之前就起来的，而不是等人开口。
 
+设计稿旁边放一份同名 Markdown（`home.ptr` → `home.md`），画布左上角就会出现「笔记」按钮。点开后画布向右收窄、左侧切出笔记——只读：这份设计是干什么的、还有哪些待定、对应哪条需求。
+
+右上角的浮动工具条放的是这个项目的设计系统。**预设**是项目里的颜色和倒角：agent 只写引用（`$color-brand`），不贴裸值；你在这里改一个值，画布立刻变——不用再说「红一点、再蓝一点」。**组件**是只读画廊，把 agent 已经做好的可复用组件摊开给你看进度，也让 agent 动手前先来这儿找。
+
 画布操作：滚轮以指针为锚点缩放，空格 / 中键 / 空白处拖拽平移，`Ctrl/Cmd+0` 回到 100%，`Shift+1` 适应窗口。多画板文件会显示画板条。通过 CLI 或 MCP 做的修改会在查看器里高亮，点击会让节点获得短号，agent 用 `paintress_marks` 读回。
 
-工具条右侧有两个只影响查看的开关。**画布背景**切 Light / Gray / Dark，只改画布区底色，不动界面其它部分（点档位或拖滑块）。**界面语言**在中 / EN 之间切；首次打开跟随浏览器语言，不是中文就是英文。两者都按浏览器记住。注册新项目、或往已跟踪目录里放一个新的 `.ptr` / `.pen`，所有已打开的查看器都会自动刷新，不需要手按 F5。
+工具条右侧有两个只影响查看的开关。**画布背景**切 Light / Gray / Dark，只改画布区底色，不动界面其它部分（点档位或拖滑块）。**界面语言**在中 / EN 之间切；首次打开跟随浏览器语言，不是中文就是英文。两者都按浏览器记住。注册新项目、或往已跟踪目录里放一个新的设计稿，所有已打开的查看器都会自动刷新，不需要手按 F5。
 
 ## MCP 客户端
 
@@ -109,10 +119,12 @@ paintress mcp-config cursor   # 只打印片段，不改文件
 ## 文档
 
 - `specs/PLAN.md` —— 路线与未决问题
-- `format/spec.yaml` —— 文件格式规格（`.pen` 层冻结，`.ptr` 层演进）
-- `format/README.md` —— 两层关系，以及为什么 `.ptr` 是标准格式
+- `format/spec.yaml` —— 设计稿文件格式规格
+- `format/README.md` —— 格式分层之间是什么关系
 - `.agents/memory/ARCHITECTURE.md` —— 设计决策与理由
 - `.agents/implementations/` —— 每次变更的记录与实测数据
+
+已有的 `.pen` 设计稿也能直接打开，原样渲染。
 
 ## 发版（维护者）
 
@@ -231,7 +243,7 @@ paintress doctor                                        # 条目存在、命令�
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"0"}}}\n' | paintress mcp
 ```
 
-第二条命令应当返回包含 `"serverInfo": {"name": "paintress", …}` 的 `result`。会话重启后，对任意 `.ptr` 或 `.pen` 文件调用 `paintress_doc_info` 是一次端到端验证。
+第二条命令应当返回包含 `"serverInfo": {"name": "paintress", …}` 的 `result`。会话重启后，对任意设计稿调用 `paintress_doc_info` 是一次端到端验证。
 
 ### 5. 多 agent 规则
 
