@@ -146,3 +146,10 @@
 - 实测（2026-11-13）：ci 单 job 62s；publish **71s → 29s**（dispatch 复跑）；门禁抓到的是正确的那次 ci run。
 - 校验：门禁脚本用桩 `gh` 跑 6 个场景、发布步骤用桩 `npm` 跑 3 个场景，全部符合预期；`shellcheck` 干净。
 - 证据：`.agents/implementations/2026-11-13_0314_publish-gate-and-ci-cache.md`。
+
+### 查看器「画前必起」：幂等 ensure + 写前兜底（2026-11-13）
+
+- `paintress web` / `web --daemon` 幂等：已在跑就复用（打印真实 pid/端口/URL），并发启动只留一个进程；`ping` 增 `port`，`queryDaemon()` 成为唯一存活判据；子进程早退报退出码而非干等超时。
+- MCP initialize 下发 `instructions`（查看器优先 + 幂等声明 + 工作流），新增第 14 个工具 `paintress_viewer`；写工具执行前 best-effort 再 ensure 一次（仅 stdio 入口开启）。
+- `SKILL.md` 增「Start the viewer before you draw」；README 双语同步。质量基线：双端 `tsc` 0 错误、**18 文件 257 用例全绿**、`pnpm build` 通过。
+- 证据：`.agents/implementations/2026-11-13_2138_idempotent-viewer-ensure.md`。
